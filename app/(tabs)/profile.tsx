@@ -527,7 +527,7 @@ const Profile = () => {
 
         <TouchableOpacity
           style={styles.outlineButton}
-          onPress={() => router.push("/(tabs)")}
+          onPress={() => router.push("/(tabs)/home")}
         >
           <Ionicons name="home-outline" size={20} color="#666" />
           <Text style={styles.outlineButtonText}>Back to Home</Text>

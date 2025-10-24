@@ -1,48 +1,86 @@
-import React from "react";
-import { Stack } from "expo-router";
-import { Provider } from "react-redux";
-import { store } from "@/redux/Store";
-import { useSelector, useDispatch } from "react-redux";
-import { RootState } from "@/redux/Store";
-import { Portal, Dialog, Button, Text } from "react-native-paper";
+// app/_layout.tsx
+import React, { useEffect } from "react";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { Provider, useSelector } from "react-redux";
+import { store, RootState } from "@/redux/Store";
+import AlertComponent from "@/components/base/AlertComponent";
+import { useDispatch } from "react-redux";
 import { hideAlert } from "@/redux/slices/alertSlice";
 
+// Protected Route Component
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const segments = useSegments();
+  const router = useRouter();
+  const { token, user } = useSelector((state: RootState) => state.auth);
+
+  useEffect(() => {
+    const inAuthGroup = segments[0] === "auth";
+    const inTabsGroup = segments[0] === "(tabs)";
+
+    // If user is logged in and trying to access auth pages, redirect to home
+    if (token && user && inAuthGroup) {
+      router.replace("/(tabs)/home");
+    }
+
+    // If user is not logged in and trying to access protected pages, redirect to login
+    if (!token && inTabsGroup) {
+      router.replace("/auth/login");
+    }
+  }, [token, user, segments]);
+
+  return <>{children}</>;
+}
+
+// Alert Dialog Handler
 function AlertDialog() {
   const dispatch = useDispatch();
   const { visible, alertData } = useSelector((state: RootState) => state.alert);
 
-  if (!alertData) return null;
+  const handleAlertPress = (action?: string) => {
+    dispatch(hideAlert());
+    // Add any additional logic based on action
+  };
 
   return (
-    <Portal>
-      <Dialog visible={visible} onDismiss={() => dispatch(hideAlert())}>
-        <Dialog.Title>
-          {alertData.type === "error" ? "Error" : alertData.type === "success" ? "Success" : "Info"}
-        </Dialog.Title>
-        <Dialog.Content>
-          <Text>{alertData.message}</Text>
-          {alertData.message_desc ? <Text>{alertData.message_desc}</Text> : null}
-        </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={() => dispatch(hideAlert())}>
-            {alertData.buttonText2 || "OK"}
-          </Button>
-        </Dialog.Actions>
-      </Dialog>
-    </Portal>
+    <AlertComponent
+      type={alertData?.type || "info"}
+      message={alertData?.message}
+      message_desc={alertData?.message_desc}
+      visible={visible}
+      onPress={handleAlertPress}
+      buttonText={alertData?.buttonText || "OK"}
+      buttonText2={alertData?.buttonText2 || "Close"}
+      showLoginButton={alertData?.showLoginButton || false}
+      isLoading={false}
+    />
   );
 }
 
+// Inner Layout (with Redux access)
+function RootLayoutNav() {
+  return (
+    <ProtectedRoute>
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* Auth screens */}
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/register" options={{ headerShown: false }} />
+        
+        {/* Main app screens */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        
+        {/* Other screens */}
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+      </Stack>
+      <AlertDialog />
+    </ProtectedRoute>
+  );
+}
+
+// Root Layout (with Provider)
 export default function RootLayout() {
   return (
     <Provider store={store}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="auth/login" />
-        <Stack.Screen name="auth/register" />
-        <Stack.Screen name="(tabs)" options={{headerShown: false,}} />
-        
-      </Stack>
-      <AlertDialog />
+      <RootLayoutNav />
     </Provider>
   );
 }

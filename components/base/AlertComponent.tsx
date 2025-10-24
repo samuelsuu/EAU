@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,13 +6,20 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
-} from 'react-native';
-import * as Constant from '@/constants/GlobalConstants';
-import { usePrimaryColor } from '@/hooks/index';
-import { useSelector } from 'react-redux';
+  Animated,
+  Dimensions,
+  Platform,
+} from "react-native";
+import { BlurView } from 'expo-blur';
+import { Ionicons } from "@expo/vector-icons";
+import * as Constant from "@/constants/GlobalConstants";
+import { usePrimaryColor } from "@/hooks/index";
+import { useSelector } from "react-redux";
+
+const { width } = Dimensions.get("window");
 
 interface AlertComponentProps {
-  type: 'success' | 'error';
+  type: "success" | "error" | "warning" | "info";
   message?: string;
   message_desc?: string;
   onPress: (action?: string) => void;
@@ -37,13 +44,13 @@ interface RootState {
 }
 
 const AlertComponent: React.FC<AlertComponentProps> = ({
-  type,
+  type = "success",
   message,
   message_desc,
   onPress,
   visible,
-  buttonText = 'OK',
-  buttonText2 = 'Cancel',
+  buttonText = "OK",
+  buttonText2 = "Cancel",
   showLoginButton = false,
   isLoading = false,
 }) => {
@@ -52,84 +59,259 @@ const AlertComponent: React.FC<AlertComponentProps> = ({
   );
   const primaryColor = usePrimaryColor();
 
-  // Replace icon with emoji
-  const iconComponent = (
-    <Text style={{ fontSize: 50 }}>
-      {type === 'success' ? '✅' : '❌'}
-    </Text>
-  );
+  // Animation refs
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 40,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0);
+      fadeAnim.setValue(0);
+      slideAnim.setValue(50);
+    }
+  }, [visible]);
 
   const defaultMessage =
-    type === 'success'
-      ? settings?.localize?.success || 'Success'
-      : settings?.localize?.error || 'Error';
+    type === "success"
+      ? settings?.localize?.success || "Success"
+      : settings?.localize?.error || "Error";
+
+  // Configuration based on type
+  const config = {
+    success: {
+      icon: "checkmark-circle",
+      iconColor: "#10b981",
+      bgGradient: ["#ecfdf5", "#d1fae5"],
+      borderColor: "#6ee7b7",
+      titleColor: "#059669",
+      glowColor: "rgba(16, 185, 129, 0.3)",
+    },
+    error: {
+      icon: "close-circle",
+      iconColor: "#ef4444",
+      bgGradient: ["#fef2f2", "#fee2e2"],
+      borderColor: "#fca5a5",
+      titleColor: "#dc2626",
+      glowColor: "rgba(239, 68, 68, 0.3)",
+    },
+    warning: {
+      icon: "warning",
+      iconColor: "#f59e0b",
+      bgGradient: ["#fffbeb", "#fef3c7"],
+      borderColor: "#fcd34d",
+      titleColor: "#d97706",
+      glowColor: "rgba(245, 158, 11, 0.3)",
+    },
+    info: {
+      icon: "information-circle",
+      iconColor: "#3b82f6",
+      bgGradient: ["#eff6ff", "#dbeafe"],
+      borderColor: "#93c5fd",
+      titleColor: "#2563eb",
+      glowColor: "rgba(59, 130, 246, 0.3)",
+    },
+  };
+
+  const currentConfig = config[type];
 
   return (
     <Modal
       visible={visible}
-      transparent={true}
-      animationType="fade"
+      transparent
+      animationType="none"
       onRequestClose={() => onPress()}
+      statusBarTranslucent
     >
-      <View style={styles.overlay}>
-        <View style={styles.dialogContent}>
-          <View style={styles.iconContainer}>{iconComponent}</View>
-          <View style={styles.textContainer}>
-            <Text style={styles.typemessage}>
-              {message !== undefined ? message : defaultMessage}
-            </Text>
-            {message_desc && (
-              <Text style={styles.message}>{message_desc}</Text>
-            )}
-          </View>
-          <View style={styles.buttonWrapper}>
-            <TouchableOpacity
+      <Animated.View
+        style={[
+          styles.overlay,
+          {
+            opacity: fadeAnim,
+          },
+        ]}
+      >
+        {/* Blur Effect (iOS) */}
+        {Platform.OS === 'ios' ? (
+          <BlurView intensity={20} style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
+        )}
+
+        <Animated.View
+          style={[
+            styles.dialogContainer,
+            {
+              transform: [
+                { scale: scaleAnim },
+                { translateY: slideAnim },
+              ],
+            },
+          ]}
+        >
+          {/* Glow Effect */}
+          <View
+            style={[
+              styles.glowEffect,
+              {
+                shadowColor: currentConfig.iconColor,
+                backgroundColor: currentConfig.glowColor,
+              },
+            ]}
+          />
+
+          <View
+            style={[
+              styles.dialogContent,
+              {
+                borderColor: currentConfig.borderColor,
+              },
+            ]}
+          >
+            {/* Animated Icon */}
+            <Animated.View
               style={[
-                styles.button,
-                !showLoginButton
-                  ? [styles.loginButton, { backgroundColor: primaryColor }]
-                  : styles.cancelButton,
+                styles.iconContainer,
+                {
+                  backgroundColor: currentConfig.iconColor,
+                  transform: [
+                    {
+                      rotate: scaleAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["-180deg", "0deg"],
+                      }),
+                    },
+                  ],
+                },
               ]}
-              onPress={() => onPress('cancel')}
-              disabled={isLoading}
             >
-              {!showLoginButton && isLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#fff"
-                  style={{ transform: [{ scale: 0.9 }] }}
+              <Ionicons
+                name={currentConfig.icon as any}
+                size={50}
+                color="#fff"
+              />
+              
+              {/* Pulse Animation */}
+              <Animated.View
+                style={[
+                  styles.pulseRing,
+                  {
+                    borderColor: currentConfig.iconColor,
+                    opacity: fadeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 0.3],
+                    }),
+                    transform: [
+                      {
+                        scale: fadeAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 1.5],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+            </Animated.View>
+
+            {/* Content */}
+            <View style={styles.textContainer}>
+              <Text
+                style={[
+                  styles.typemessage,
+                  { color: currentConfig.titleColor },
+                ]}
+              >
+                {message || defaultMessage}
+              </Text>
+              {message_desc && (
+                <Text style={styles.message}>{message_desc}</Text>
+              )}
+            </View>
+
+            {/* Decorative Line */}
+            <View
+              style={[
+                styles.decorativeLine,
+                { backgroundColor: currentConfig.borderColor },
+              ]}
+            />
+
+            {/* Buttons */}
+            <View style={styles.buttonWrapper}>
+              {/* Cancel/Secondary Button */}
+              <TouchableOpacity
+                style={[styles.button, styles.cancelButton]}
+                onPress={() => onPress("cancel")}
+                disabled={isLoading}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="close-outline"
+                  size={20}
+                  color="#6b7280"
+                  style={{ marginRight: 6 }}
                 />
-              ) : (
-                <Text
-                  style={[
-                    styles.buttonText,
-                    { color: !showLoginButton ? '#fff' : Constant.secondaryColor },
-                  ]}
-                >
+                <Text style={[styles.buttonText, { color: "#374151" }]}>
                   {buttonText2}
                 </Text>
-              )}
-            </TouchableOpacity>
-            {showLoginButton && (
+              </TouchableOpacity>
+
+              {/* Primary Button */}
               <TouchableOpacity
                 style={[
                   styles.button,
-                  styles.loginButton,
-                  { backgroundColor: primaryColor },
+                  styles.primaryButton,
+                  {
+                    backgroundColor: showLoginButton
+                      ? primaryColor
+                      : currentConfig.iconColor,
+                  },
                 ]}
-                onPress={() => onPress('login')}
+                onPress={() => onPress("login")}
                 disabled={isLoading}
+                activeOpacity={0.7}
               >
                 {isLoading ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.buttonText}>{buttonText}</Text>
+                  <>
+                    <Ionicons
+                      name="checkmark-outline"
+                      size={20}
+                      color="#fff"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={[styles.buttonText, { color: "#fff" }]}>
+                      {buttonText}
+                    </Text>
+                  </>
                 )}
               </TouchableOpacity>
-            )}
+            </View>
           </View>
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 };
@@ -137,91 +319,123 @@ const AlertComponent: React.FC<AlertComponentProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  dialogContainer: {
+    width: "100%",
+    maxWidth: 380,
+    position: "relative",
+  },
+  glowEffect: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 24,
+    opacity: 0.4,
+    shadowRadius: 30,
+    shadowOpacity: 1,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 20,
   },
   dialogContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    width: 300,
-    position: 'relative',
-    marginTop: 50,
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    paddingTop: 80,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 15,
+    overflow: "hidden",
   },
   iconContainer: {
-    position: 'absolute',
-    top: -30,
-    zIndex: 1,
+    position: "absolute",
+    top: -45,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+  },
+  pulseRing: {
+    position: "absolute",
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3,
   },
   textContainer: {
-    marginTop: 40,
-    alignItems: 'center',
+    alignItems: "center",
+    marginBottom: 20,
+    width: "100%",
   },
   typemessage: {
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: '500',
+    fontSize: 24,
+    fontWeight: "800",
     fontFamily: Constant.primaryFontSemiBold,
-    color: '#000',
-    textAlign: 'center',
+    textAlign: "center",
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   message: {
-    fontSize: 16,
-    color: '#6B6B6B',
+    fontSize: 15,
+    color: "#6b7280",
+    textAlign: "center",
     fontFamily: Constant.primaryFontRegular,
-    textAlign: 'center',
-    marginTop: 5,
-    paddingHorizontal: 30,
+    lineHeight: 22,
+    paddingHorizontal: 10,
+  },
+  decorativeLine: {
+    width: 60,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 20,
+    opacity: 0.3,
   },
   buttonWrapper: {
-    marginTop: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderBottomRightRadius: 10,
-    borderBottomLeftRadius: 10,
-    backgroundColor: '#f7f7f8',
-    width: '100%',
-    paddingHorizontal: 16,
-    gap: 14,
-    paddingVertical: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 12,
   },
   button: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-    minWidth: 120,
-    alignItems: 'center',
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
   },
   cancelButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderColor: '#eaeaea',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    shadowColor: 'rgba(16, 24, 40, 0.04)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 6,
-    elevation: 6,
+    backgroundColor: "#f9fafb",
+    borderWidth: 2,
+    borderColor: "#e5e7eb",
   },
-  loginButton: {
-    flex: 1,
-    backgroundColor: '#ee4710',
-    borderRadius: 10,
-    paddingVertical: 12,
-    shadowColor: 'rgba(16, 24, 40, 0.04)',
+  primaryButton: {
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 6,
-    elevation: 6,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "700",
     fontFamily: Constant.primaryFontMedium,
-    color: '#fff',
-    textAlign: 'center',
+    letterSpacing: 0.3,
   },
 });
 
