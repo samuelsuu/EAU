@@ -482,7 +482,7 @@ const Register: React.FC = () => {
             {/* Login Link */}
             <TouchableOpacity
               style={styles.loginLink}
-              onPress={() => router.push("/auth/index")}
+              onPress={() => router.push("/auth")}
               disabled={loading}
             >
               <Text style={styles.loginText}>
