@@ -173,7 +173,7 @@ const Login: React.FC = () => {
     setAlert((prev) => ({ ...prev, visible: false }));
     if (alert.type === "success") {
       setTimeout(() => {
-        router.replace("/(tabs)");
+        router.replace("/(tabs)/home");
       }, 100);
     }
   };
@@ -193,7 +193,7 @@ const Login: React.FC = () => {
             {/* Skip Button */}
             <TouchableOpacity
               style={styles.skipButton}
-              onPress={() => router.replace("/(tabs)")}
+              onPress={() => router.replace("/(tabs)/home")}
               activeOpacity={0.8}
               disabled={loading}
             >

@@ -251,7 +251,7 @@ const Register: React.FC = () => {
 
     if (wasSuccess) {
       setTimeout(() => {
-        router.replace("/(tabs)");
+        router.replace("/(tabs)/home");
       }, 100);
     }
   };
@@ -482,7 +482,7 @@ const Register: React.FC = () => {
             {/* Login Link */}
             <TouchableOpacity
               style={styles.loginLink}
-              onPress={() => router.push("/auth/login")}
+              onPress={() => router.push("/auth/index")}
               disabled={loading}
             >
               <Text style={styles.loginText}>
