@@ -2,10 +2,21 @@
 import React, { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { Provider, useSelector } from "react-redux";
-import { store, RootState } from "@/redux/Store";
+import { PersistGate } from "redux-persist/integration/react";
+import { ActivityIndicator, View, StyleSheet } from "react-native";
+import { store, persistor, RootState } from "@/redux/Store";
 import AlertComponent from "@/components/base/AlertComponent";
 import { useDispatch } from "react-redux";
 import { hideAlert } from "@/redux/slices/alertSlice";
+
+// Loading Screen Component
+function LoadingScreen() {
+  return (
+    <View style={styles.loadingContainer}>
+      <ActivityIndicator size="large" color="#EE4710" />
+    </View>
+  );
+}
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -76,11 +87,22 @@ function RootLayoutNav() {
   );
 }
 
-// Root Layout (with Provider)
+// Root Layout (with Provider and PersistGate)
 export default function RootLayout() {
   return (
     <Provider store={store}>
-      <RootLayoutNav />
+      <PersistGate loading={<LoadingScreen />} persistor={persistor}>
+        <RootLayoutNav />
+      </PersistGate>
     </Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+});

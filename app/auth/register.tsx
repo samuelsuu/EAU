@@ -10,6 +10,7 @@ import {
   Animated,
   Dimensions,
   StyleSheet,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -69,6 +70,7 @@ const Register: React.FC = () => {
     type: "error" as "error" | "success",
     message: "",
     message_desc: "",
+    requiresVerification: true,
   });
 
   // ---------------- Animation ----------------
@@ -181,7 +183,9 @@ const Register: React.FC = () => {
       if (isSuccess) {
         console.log("✅ Registration successful!");
 
+        // Check if auto-login is available (token and user provided)
         if (token && user) {
+          // Auto-login scenario
           dispatch(setToken(token));
           dispatch(setUser(user));
           console.log("✅ Auto-login successful");
@@ -189,21 +193,24 @@ const Register: React.FC = () => {
           setAlert({
             visible: true,
             type: "success",
-            message: data?.message || "Account Created!",
+            message: data?.message || "Account Created Successfully!",
             message_desc:
-              data?.message_desc || "Your account has been created and you're now logged in!",
+              data?.message_desc || "Welcome! Your account has been created and you're now logged in.",
+            requiresVerification: false,
           });
         } else {
+          // Email verification required scenario
           setAlert({
             visible: true,
             type: "success",
-            message: data?.message || "Account Created!",
+            message: "Account Created Successfully! 🎉",
             message_desc:
-              data?.message_desc ||
-              "Your account has been created successfully. Please login to continue.",
+              "Please check your email inbox and verify your email address before logging in. We've sent you a verification link.",
+            requiresVerification: true,
           });
         }
 
+        // Clear form
         setForm({
           first_name: "",
           last_name: "",
@@ -220,6 +227,7 @@ const Register: React.FC = () => {
           type: "error",
           message: "Registration Failed",
           message_desc: message || "Unable to create account. Please try again.",
+          requiresVerification: false,
         });
       }
     } catch (error: any) {
@@ -231,13 +239,14 @@ const Register: React.FC = () => {
         errorData?.message_desc ||
         errorData?.message ||
         error?.message ||
-        "An unexpected error occurred. Please try again.";
+        "User already exists. Please try a different email or login.";
 
       setAlert({
         visible: true,
         type: "error",
         message: "Registration Failed",
         message_desc: errorMessage,
+        requiresVerification: false,
       });
     } finally {
       setLoading(false);
@@ -247,11 +256,19 @@ const Register: React.FC = () => {
   // ---------------- Alert Handler ----------------
   const handleAlertPress = () => {
     const wasSuccess = alert.type === "success";
+    const needsVerification = alert.requiresVerification;
+    
     setAlert((prev) => ({ ...prev, visible: false }));
 
     if (wasSuccess) {
       setTimeout(() => {
-        router.replace("/(tabs)/home");
+        if (needsVerification) {
+          // Route to login page for email verification
+          router.replace("/auth/login");
+        } else {
+          // Route to home (auto-login case)
+          router.replace("/(tabs)/home");
+        }
       }, 100);
     }
   };
@@ -283,9 +300,15 @@ const Register: React.FC = () => {
 
             {/* Logo */}
             <View style={styles.logoContainer}>
-              <View style={styles.logoCircle}>
-                <Ionicons name="person-add" size={40} color={whiteColor} />
-              </View>
+              <Image 
+                source={require('@/assets/images/splash-icon.png')} 
+                style={{ 
+                  marginTop: 10, 
+                  width: windowWidth * 0.5, 
+                  height: 60, 
+                  resizeMode: 'contain' 
+                }} 
+              />
             </View>
 
             {/* Header */}
@@ -499,7 +522,7 @@ const Register: React.FC = () => {
             message_desc={alert.message_desc}
             visible={alert.visible}
             onPress={handleAlertPress}
-            buttonText="OK"
+            buttonText={alert.requiresVerification ? "Go to Login" : "Continue"}
             buttonText2="Close"
             showLoginButton={false}
           />

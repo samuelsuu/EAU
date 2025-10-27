@@ -13,18 +13,16 @@ import {
   TextInput,
   Switch,
 } from "react-native";
-import { getProfileData, updateProfileData, updateProfileImage, updatePassword } from "@/api/api";
+import { getProfileData, updateProfileData, updatePassword } from "@/api/api";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
 import { setUser, logout } from "@/redux/slices/authSlice";
+import { clearAllStorage, saveProfileBackup, getProfileBackup } from "@/utils/storageUtils";
 import {
   primaryColor,
   secondaryColor,
   backgroundColor,
-  whiteColor,
-  fontColor,
-  highlightColor,
 } from "@/constants/GlobalConstants";
 
 interface UserProfile {
@@ -101,13 +99,6 @@ const Profile = () => {
   const displayEmail = React.useMemo(() => {
     const profileEmail = user?.email || user?.user_email;
     const authEmail = authUser?.email || authUser?.user_email || authUser?.userEmail;
-    
-    console.log("📧 Email Debug:", {
-      profileEmail,
-      authEmail,
-      authUserFull: authUser,
-    });
-    
     return profileEmail || authEmail || "Email not provided";
   }, [user, authUser]);
 
@@ -125,28 +116,61 @@ const Profile = () => {
     return profileType || authType;
   }, [user, authUser]);
 
-  const loadProfile = async () => {
+  // Load profile with fallback chain - FIXED: Persisted data takes priority
+  const loadProfile = async (forceApiUpdate = false) => {
     try {
       const res = await getProfileData();
       const profileData = res.data?.data || res.data;
       
       console.log("📋 Profile API Response:", profileData);
       
-      const mergedData = {
-        ...authUser,
-        ...profileData,
-      };
+      // CRITICAL: Check if we have newer persisted data
+      const persistedData = authUser;
+      const hasPersistedData = persistedData && Object.keys(persistedData).length > 0;
       
-      setUserProfile(mergedData);
+      // If we have persisted data and not forcing API update, prefer persisted data
+      let mergedData;
+      if (hasPersistedData && !forceApiUpdate) {
+        console.log("🔒 Using persisted data (has priority over API)");
+        // Persisted data takes priority, only fill missing fields from API
+        mergedData = {
+          ...profileData, // Base: API data
+          ...persistedData, // Override: Persisted data (has priority)
+        };
+      } else {
+        console.log("🌐 Using API data (force update or no persisted data)");
+        // API data takes priority on force update or first load
+        mergedData = {
+          ...persistedData,
+          ...profileData,
+        };
+      }
       
+      console.log("🔄 Merged profile data:", mergedData);
+      
+      // Only update if data is different or if forcing
+      const currentDataStr = JSON.stringify(user);
+      const newDataStr = JSON.stringify(mergedData);
+      
+      if (currentDataStr !== newDataStr || forceApiUpdate) {
+        setUserProfile(mergedData);
+        
+        // Only update Redux if forcing or no persisted data
+        if (forceApiUpdate || !hasPersistedData) {
+          dispatch(setUser(mergedData));
+          await saveProfileBackup(mergedData);
+        }
+      }
+      
+      // Populate edit form
       const fullName = mergedData?.user_name || mergedData?.name || "";
       const nameParts = fullName.trim().split(" ");
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
+      const firstName = mergedData?.first_name || nameParts[0] || "";
+      const lastName = mergedData?.last_name || nameParts.slice(1).join(" ") || "";
       
       setEditForm({
-        first_name: mergedData?.first_name || firstName,
-        last_name: mergedData?.last_name || lastName,
+        first_name: firstName,
+        last_name: lastName,
         email: mergedData?.email || mergedData?.user_email || "",
         phone: mergedData?.phone || "",
         bio: mergedData?.bio || "",
@@ -154,30 +178,47 @@ const Profile = () => {
         country: mergedData?.country || "",
       });
     } catch (error: any) {
-      console.log("❌ Profile error:", error);
+      console.log("❌ Profile API error:", error);
       
-      if (authUser) {
-        console.log("📋 Using auth user data as fallback");
-        setUserProfile(authUser);
+      // Fallback chain
+      let fallbackData = null;
+      
+      // Fallback 1: Use Redux persisted data
+      if (authUser && Object.keys(authUser).length > 0) {
+        console.log("📋 Fallback 1: Using Redux persisted data");
+        fallbackData = authUser;
+      } 
+      // Fallback 2: Check AsyncStorage backup
+      else {
+        console.log("📦 Fallback 2: Checking AsyncStorage backup");
+        fallbackData = await getProfileBackup();
+      }
+      
+      if (fallbackData) {
+        setUserProfile(fallbackData);
         
-        const fullName = authUser?.user_name || authUser?.name || "";
+        // If we got data from backup but not Redux, update Redux
+        if (!authUser || Object.keys(authUser).length === 0) {
+          dispatch(setUser(fallbackData));
+        }
+        
+        const fullName = fallbackData?.user_name || fallbackData?.name || "";
         const nameParts = fullName.trim().split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
         
         setEditForm({
-          first_name: authUser?.first_name || firstName,
-          last_name: authUser?.last_name || lastName,
-          email: authUser?.email || authUser?.user_email || "",
-          phone: authUser?.phone || "",
-          bio: authUser?.bio || "",
-          location: authUser?.location || "",
-          country: authUser?.country || "",
+          first_name: fallbackData?.first_name || nameParts[0] || "",
+          last_name: fallbackData?.last_name || nameParts.slice(1).join(" ") || "",
+          email: fallbackData?.email || fallbackData?.user_email || "",
+          phone: fallbackData?.phone || "",
+          bio: fallbackData?.bio || "",
+          location: fallbackData?.location || "",
+          country: fallbackData?.country || "",
         });
       } else {
         Alert.alert(
           "Error",
-          error?.response?.data?.message || "Failed to load profile"
+          "Failed to load profile. Please try logging in again.",
+          [{ text: "OK", onPress: () => router.replace("/auth/login") }]
         );
       }
     } finally {
@@ -189,15 +230,18 @@ const Profile = () => {
   useEffect(() => {
     console.log("🔍 Auth User from Redux:", authUser);
     console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
-    loadProfile();
+    
+    // On mount, load profile but don't override persisted data
+    loadProfile(false);
   }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadProfile();
+    // On refresh, force API update
+    loadProfile(true);
   };
 
-  // Handle logout
+  // Handle logout with proper cleanup
   const handleLogout = () => {
     Alert.alert(
       "Logout",
@@ -210,21 +254,33 @@ const Profile = () => {
         {
           text: "Logout",
           style: "destructive",
-          onPress: () => {
-            // Clear Redux state
-            dispatch(setUser(null));
-            dispatch({ type: 'auth/setToken', payload: null });
-            dispatch({ type: 'auth/setAuth', payload: { user: null, token: null } });
-            
-            // Navigate to login
-            router.replace("/auth/login");
+          onPress: async () => {
+            try {
+              // Clear all storage
+              await clearAllStorage();
+              
+              // Dispatch logout action
+              dispatch(logout());
+              
+              console.log("✅ Logout successful");
+              
+              // Navigate to login
+              router.replace("/auth/login");
+              
+            } catch (error) {
+              console.error("❌ Logout error:", error);
+              
+              // Force logout even if cleanup fails
+              dispatch(logout());
+              router.replace("/auth/login");
+            }
           }
         }
       ]
     );
   };
 
-  // Handle profile update
+  // Handle profile update with all field variations
   const handleUpdateProfile = async () => {
     const trimmedForm = {
       first_name: editForm.first_name.trim(),
@@ -260,33 +316,73 @@ const Profile = () => {
       console.log("📥 Update response:", response.data);
       
       if (response.data?.type === "success") {
-        Alert.alert("Success", "Profile updated successfully");
+        // Create complete user object with ALL field name variations
+        const fullName = `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
         
         const updatedUser = { 
-          ...user, 
+          ...user,
           ...trimmedForm,
-          user_name: `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim(),
-          name: `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim(),
+          // Explicitly set all name variations
+          first_name: trimmedForm.first_name,
+          last_name: trimmedForm.last_name,
+          user_name: fullName,
+          name: fullName,
+          username: fullName,
+          // Explicitly set all email variations
+          email: trimmedForm.email,
+          user_email: trimmedForm.email,
+          userEmail: trimmedForm.email,
+          // Other fields
+          phone: trimmedForm.phone,
+          bio: trimmedForm.bio,
+          location: trimmedForm.location,
+          country: trimmedForm.country,
+          // Add timestamp to track when this was updated
+          _lastUpdated: new Date().toISOString(),
         };
-        setUserProfile(updatedUser);
-        dispatch(setUser(updatedUser));
         
-        setEditModalVisible(false);
-        loadProfile();
+        console.log("✅ Updated user object:", updatedUser);
+        
+        // CRITICAL: Update in correct order
+        // 1. Update Redux FIRST (this persists via redux-persist)
+        dispatch(setUser(updatedUser));
+        console.log("✅ Redux updated");
+        
+        // 2. Save backup to AsyncStorage
+        await saveProfileBackup(updatedUser);
+        console.log("✅ Backup saved");
+        
+        // 3. Update local state LAST (for immediate UI update)
+        setUserProfile(updatedUser);
+        console.log("✅ Local state updated");
+        
+        Alert.alert("Success", "Profile updated successfully!", [
+          {
+            text: "OK",
+            onPress: () => {
+              setEditModalVisible(false);
+              // Don't reload from API immediately - give server time to update
+              console.log("✅ Profile update complete - NOT reloading from API to prevent overwrite");
+            }
+          }
+        ]);
+      } else {
+        throw new Error(response.data?.message || "Update failed");
       }
     } catch (error: any) {
       console.error("❌ Update error:", error);
       
       const errorMessage = error?.response?.data?.message_desc || 
                           error?.response?.data?.message || 
-                          "Failed to update profile";
+                          error?.message ||
+                          "Failed to update profile. Please try again.";
       Alert.alert("Error", errorMessage);
     } finally {
       setUpdating(false);
     }
   };
 
-  // Handle password change - FIXED
+  // Handle password change
   const handleChangePassword = async () => {
     if (!settingsForm.currentPassword || !settingsForm.newPassword) {
       Alert.alert("Error", "Please fill all password fields");
@@ -307,7 +403,6 @@ const Profile = () => {
     try {
       console.log("🔐 Attempting password change...");
       
-      // Use correct field names for the API
       const response = await updatePassword({
         old_password: settingsForm.currentPassword,
         new_password: settingsForm.newPassword,
@@ -323,13 +418,11 @@ const Profile = () => {
           [
             {
               text: "OK",
-              onPress: () => {
+              onPress: async () => {
                 setSettingsModalVisible(false);
-                // Optional: Auto logout after password change
-                setTimeout(() => {
-                  dispatch(logout());
-                  router.replace("/auth/login");
-                }, 500);
+                await clearAllStorage();
+                dispatch(logout());
+                router.replace("/auth/login");
               }
             }
           ]
@@ -344,7 +437,6 @@ const Profile = () => {
       }
     } catch (error: any) {
       console.error("❌ Password change error:", error);
-      console.error("❌ Error response:", error?.response?.data);
       
       const errorMessage = error?.response?.data?.message_desc || 
                           error?.response?.data?.message || 
@@ -525,6 +617,30 @@ const Profile = () => {
           <Text style={styles.secondaryButtonText}>Settings</Text>
         </TouchableOpacity>
 
+        {/* Sync Button - Pull fresh data from server */}
+        <TouchableOpacity
+          style={styles.syncButton}
+          onPress={() => {
+            Alert.alert(
+              "Sync from Server",
+              "This will fetch your latest profile data from the server and may overwrite local changes. Continue?",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Sync",
+                  onPress: () => {
+                    setRefreshing(true);
+                    loadProfile(true);
+                  }
+                }
+              ]
+            );
+          }}
+        >
+          <Ionicons name="cloud-download-outline" size={20} color="#007AFF" />
+          <Text style={styles.syncButtonText}>Sync from Server</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.outlineButton}
           onPress={() => router.push("/(tabs)/home")}
@@ -533,7 +649,6 @@ const Profile = () => {
           <Text style={styles.outlineButtonText}>Back to Home</Text>
         </TouchableOpacity>
 
-        {/* Logout Button */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
@@ -792,7 +907,7 @@ export default Profile;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor:  backgroundColor,
+    backgroundColor: backgroundColor,
   },
   contentContainer: {
     paddingBottom: 30,
@@ -809,7 +924,7 @@ const styles = StyleSheet.create({
     color: "#666",
   },
   header: {
-    backgroundColor:  backgroundColor,
+    backgroundColor: backgroundColor,
     paddingVertical: 30,
     paddingHorizontal: 20,
     alignItems: "center",
@@ -989,14 +1104,14 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     flexDirection: "row",
-    backgroundColor:  secondaryColor,
+    backgroundColor: secondaryColor,
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     borderWidth: 1,
-    borderColor:  secondaryColor,
+    borderColor: secondaryColor,
   },
   secondaryButtonText: {
     color: primaryColor,

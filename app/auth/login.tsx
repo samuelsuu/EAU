@@ -10,6 +10,7 @@ import {
   Animated,
   Dimensions,
   StyleSheet,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -208,9 +209,10 @@ const Login: React.FC = () => {
 
             {/* Logo */}
             <View style={styles.logoContainer}>
-              <View style={styles.logoCircle}>
+              {/* <View style={styles.logoCircle}>
                 <Ionicons name="lock-closed" size={40} color={whiteColor} />
-              </View>
+              </View> */}
+              <Image source={require('@/assets/images/splash-icon.png')} style={{ marginTop: 10, width: windowWidth * 0.5, height: 60, resizeMode: 'contain' }} />
             </View>
 
             {/* Header */}

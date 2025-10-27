@@ -102,6 +102,21 @@ export default function TabLayout() {
             ),
           }}
         />
+
+        {/* <Tabs.Screen
+          name="profile-setup"
+          options={{
+            title: "profile-setup",
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons
+                name={focused ? "person" : "person-outline"}
+                size={size + 2}
+                color={color}
+              />
+            ),
+          }}
+        /> */}
+
       </Tabs>
 
       {/* Floating WhatsApp Button */}
