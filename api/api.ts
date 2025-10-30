@@ -114,22 +114,15 @@ export const resendEmailVerification = () => apiCall("post", "auth/resend-email"
 export const sendResentEmailLink = (data: any) => apiCall("post", "auth/reset-password", data);
 export const switchRole = () => apiCall("post", "auth/switch-user");
 
-// FIXED: Password change with correct field names
+// Password change with correct field names
 export const updatePassword = async (data: {
   old_password: string;
   new_password: string;
   confirm_password: string;
 }) => {
   try {
-    console.log('🔐 Password change request with fields:', {
-      old_password: '***',
-      new_password: '***',
-      confirm_password: '***',
-    });
-    
-    // Try the correct endpoint format
+    console.log('🔐 Password change request');
     const response = await apiCall("post", "auth/change-password", data);
-    
     console.log('✅ Password change response:', response.data);
     return response;
   } catch (error: any) {
@@ -243,3 +236,81 @@ export const cancelIdentityVerification = () =>
  */
 export const disputeListing = (params?: any) =>
   apiCall("get", "user/disputes", null, params);
+
+/**
+ * ========== MESSAGING ==========
+ */
+
+// Send a message to another user
+export const sendMessage = async (data: {
+  receiver_id: string;
+  message: string;
+  activity_id?: string;
+}) => {
+  try {
+    console.log('💬 Sending message to:', data.receiver_id);
+    
+    // The backend requires activity_id - use receiver_id as activity_id if not provided
+    const payload = {
+      activity_id: data.activity_id || data.receiver_id,
+      receiver_id: data.receiver_id,
+      message: data.message,
+    };
+    
+    console.log('📤 Message payload:', payload);
+    
+    const response = await apiCall("post", "user/activity/submit-message", payload);
+    
+    console.log('✅ Message sent successfully');
+    return response;
+  } catch (error: any) {
+    console.error('❌ Send message error:', error?.response?.data || error);
+    throw error;
+  }
+};
+
+// Get all conversations
+export const getConversations = async () => {
+  try {
+    const response = await apiCall("get", "user/activity/conversations");
+    return response;
+  } catch (error: any) {
+    console.error('❌ Get conversations error:', error);
+    throw error;
+  }
+};
+
+// Get messages with a specific user
+export const getMessages = async (userId: string) => {
+  try {
+    const response = await apiCall("get", `user/activity/messages/${userId}`);
+    return response;
+  } catch (error: any) {
+    console.error('❌ Get messages error:', error);
+    throw error;
+  }
+};
+
+// Mark messages as read
+export const markMessagesAsRead = async (conversationId: string) => {
+  try {
+    const response = await apiCall("post", "user/activity/mark-read", {
+      conversation_id: conversationId,
+    });
+    return response;
+  } catch (error: any) {
+    console.error('❌ Mark messages as read error:', error);
+    throw error;
+  }
+};
+
+// Delete a conversation
+export const deleteConversation = async (conversationId: string) => {
+  try {
+    const response = await apiCall("delete", `user/activity/conversation/${conversationId}`);
+    return response;
+  } catch (error: any) {
+    console.error('❌ Delete conversation error:', error);
+    throw error;
+  }
+};

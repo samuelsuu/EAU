@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx
+// app/(tabs)/home.tsx - Complete Enhanced Version
 import { popularTasks, recentProjectsListing, topRatedFreelancers } from "@/api/api";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -44,10 +44,25 @@ interface Project {
   id: string;
   title: string;
   description?: string;
+  content?: string;
   budget?: string;
+  price?: string;
   deadline?: string;
   skills?: string[];
   posted_date?: string;
+  publish_date?: string;
+  location?: string;
+  expertise?: string;
+  project_type?: string;
+  featured?: boolean;
+  saved?: boolean;
+  freelancer?: string;
+  author?: {
+    avatar?: string;
+    name?: string;
+    label?: string;
+    rating?: number;
+  };
 }
 
 interface Freelancer {
@@ -84,7 +99,7 @@ const Home = () => {
   const [freelancers, setFreelancers] = useState<Freelancer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"tasks" | "projects" | "freelancers">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "projects">("projects");
 
   // Apply Modal State
   const [applyModalVisible, setApplyModalVisible] = useState(false);
@@ -160,7 +175,7 @@ const Home = () => {
     <TouchableOpacity
       style={styles.taskCard}
       activeOpacity={0.7}
-      onPress={() => router.push(`/task/${item.id}`)}
+      onPress={() => router.push(`/task/${item.id.toString()}`)}
     >
       {item.image && (
         <Image source={{ uri: item.image }} style={styles.taskImage} />
@@ -201,40 +216,74 @@ const Home = () => {
     </TouchableOpacity>
   );
 
-  // Render project card
+  // Render enhanced project card
   const renderProjectCard = ({ item }: { item: Project }) => (
     <TouchableOpacity
       style={styles.projectCard}
       activeOpacity={0.7}
-      onPress={() => router.push(`/project/${item.id}`)}
+      onPress={() => router.push(`/project/${item.id.toString()}`)}
     >
-      <View style={styles.projectHeader}>
-        <Text style={styles.projectTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        {item.posted_date && (
-          <Text style={styles.projectDate}>{item.posted_date}</Text>
-        )}
+      {/* Header with date and featured badge */}
+      <View style={styles.projectCardHeader}>
+        <View style={styles.projectHeaderLeft}>
+          <Text style={styles.projectPostedDate}>
+            {item.publish_date || item.posted_date}
+          </Text>
+          {item.featured && (
+            <View style={styles.featuredBadge}>
+              <Ionicons name="flash" size={12} color={primaryColor} />
+              <Text style={styles.featuredText}>Featured</Text>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity style={styles.saveButton}>
+          <Ionicons 
+            name={item.saved ? "heart" : "heart-outline"} 
+            size={20} 
+            color={item.saved ? "#FF0000" : "#999"} 
+          />
+        </TouchableOpacity>
       </View>
-      {item.description && (
-        <Text style={styles.projectDescription} numberOfLines={3}>
-          {item.description}
+
+      {/* Title */}
+      <Text style={styles.projectTitle} numberOfLines={2}>
+        {item.title}
+      </Text>
+
+      {/* Description */}
+      {(item.description || item.content) && (
+        <Text style={styles.projectDescription} numberOfLines={2}>
+          {item.content || item.description}
         </Text>
       )}
-      <View style={styles.projectMeta}>
-        {item.budget && (
-          <View style={styles.metaItem}>
-            <Ionicons name="wallet-outline" size={16} color="#666" />
-            <Text style={styles.metaText}>{item.budget}</Text>
+
+      {/* Meta Information */}
+      <View style={styles.projectMetaRow}>
+        {item.location && (
+          <View style={styles.projectMetaItem}>
+            <Ionicons name="location-outline" size={14} color="#7A50EC" />
+            <Text style={styles.projectMetaText}>{item.location}</Text>
           </View>
         )}
-        {item.deadline && (
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={16} color="#666" />
-            <Text style={styles.metaText}>{item.deadline}</Text>
+        {item.expertise && (
+          <View style={styles.projectMetaItem}>
+            <Ionicons name="briefcase-outline" size={14} color="#912018" />
+            <Text style={[styles.projectMetaText, { color: "#912018" }]}>
+              {item.expertise}
+            </Text>
+          </View>
+        )}
+        {item.freelancer && (
+          <View style={styles.projectMetaItem}>
+            <Ionicons name="people-outline" size={14} color="#4CAF50" />
+            <Text style={[styles.projectMetaText, { color: "#4CAF50" }]}>
+              {item.freelancer}
+            </Text>
           </View>
         )}
       </View>
+
+      {/* Skills */}
       {item.skills && item.skills.length > 0 && (
         <View style={styles.skillsContainer}>
           {item.skills.slice(0, 3).map((skill, index) => (
@@ -242,8 +291,50 @@ const Home = () => {
               <Text style={styles.skillText}>{skill}</Text>
             </View>
           ))}
+          {item.skills.length > 3 && (
+            <View style={styles.skillTag}>
+              <Text style={styles.skillText}>+{item.skills.length - 3}</Text>
+            </View>
+          )}
         </View>
       )}
+
+      {/* Footer with author and price */}
+      <View style={styles.projectFooter}>
+        <View style={styles.authorSection}>
+          {item.author?.avatar ? (
+            <Image 
+              source={{ uri: item.author.avatar }} 
+              style={styles.authorAvatar}
+            />
+          ) : (
+            <View style={[styles.authorAvatar, styles.avatarPlaceholder]}>
+              <Ionicons name="person" size={16} color="#999" />
+            </View>
+          )}
+          <View style={styles.authorInfo}>
+            {item.author?.label && (
+              <Text style={styles.authorLabel} numberOfLines={1}>
+                {item.author.label}
+              </Text>
+            )}
+            <Text style={styles.authorName} numberOfLines={1}>
+              {item.author?.name || "Anonymous"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.priceSection}>
+          <Text style={styles.projectType}>
+            {item.project_type === "fixed" ? "Fixed Price" : "Hourly Rate"}
+          </Text>
+          <Text style={styles.projectPrice}>
+            {item.price || item.budget}
+          </Text>
+        </View>
+      </View>
+
+      {/* Apply Button */}
       <TouchableOpacity
         style={styles.applyButton}
         onPress={(e) => {
@@ -252,56 +343,8 @@ const Home = () => {
         }}
       >
         <Text style={styles.applyButtonText}>Submit Proposal</Text>
+        <Ionicons name="arrow-forward" size={16} color={whiteColor} />
       </TouchableOpacity>
-    </TouchableOpacity>
-  );
-
-  // Render freelancer card
-  const renderFreelancerCard = ({ item }: { item: Freelancer }) => (
-    <TouchableOpacity
-      style={styles.freelancerCard}
-      activeOpacity={0.7}
-      onPress={() => router.push(`/freelancer/${item.id}`)}
-    >
-      <View style={styles.freelancerHeader}>
-        {item.avatar ? (
-          <Image source={{ uri: item.avatar }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder]}>
-            <Ionicons name="person" size={30} color="#999" />
-          </View>
-        )}
-        <View style={styles.freelancerInfo}>
-          <Text style={styles.freelancerName}>{item.name}</Text>
-          {item.title && (
-            <Text style={styles.freelancerTitle} numberOfLines={1}>
-              {item.title}
-            </Text>
-          )}
-          <View style={styles.freelancerRating}>
-            {item.rating && (
-              <>
-                <Ionicons name="star" size={14} color="#FFA500" />
-                <Text style={styles.ratingText}>
-                  {item.rating} ({item.reviews || 0})
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
-      </View>
-      {item.hourly_rate && (
-        <Text style={styles.hourlyRate}>{item.hourly_rate}/hr</Text>
-      )}
-      {item.skills && item.skills.length > 0 && (
-        <View style={styles.skillsContainer}>
-          {item.skills.slice(0, 4).map((skill, index) => (
-            <View key={index} style={styles.skillTag}>
-              <Text style={styles.skillText}>{skill}</Text>
-            </View>
-          ))}
-        </View>
-      )}
     </TouchableOpacity>
   );
 
@@ -338,7 +381,7 @@ const Home = () => {
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search for tasks, projects, or freelancers..."
+          placeholder="Search for tasks or projects..."
           placeholderTextColor="#999"
         />
         <TouchableOpacity style={styles.filterButton}>
@@ -375,20 +418,8 @@ const Home = () => {
 
       {/* Content */}
       <FlatList
-        data={
-          activeTab === "tasks"
-            ? tasks
-            : activeTab === "projects"
-            ? projects
-            : freelancers
-        }
-        renderItem={
-          activeTab === "tasks"
-            ? renderTaskCard
-            : activeTab === "projects"
-            ? renderProjectCard
-            : renderFreelancerCard
-        }
+        data={activeTab === "tasks" ? tasks : projects}
+        renderItem={activeTab === "tasks" ? renderTaskCard : renderProjectCard}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
@@ -571,7 +602,7 @@ const styles = StyleSheet.create({
   taskCard: {
     backgroundColor: whiteColor,
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 40,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -627,64 +658,80 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 4,
   },
-  applyButton: {
-    backgroundColor: primaryColor,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  applyButtonText: {
-    color: whiteColor,
-    fontSize: 15,
-    fontWeight: "600",
-  },
+  // Enhanced Project Card Styles
   projectCard: {
     backgroundColor: whiteColor,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 50,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
   },
-  projectHeader: {
+  projectCardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  projectHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  projectPostedDate: {
+    fontSize: 12,
+    color: "#999",
+    fontWeight: "500",
+  },
+  featuredBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFE5DD",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginLeft: 10,
+    gap: 4,
+  },
+  featuredText: {
+    fontSize: 10,
+    color: primaryColor,
+    fontWeight: "600",
+  },
+  saveButton: {
+    padding: 4,
   },
   projectTitle: {
-    flex: 1,
     fontSize: 18,
     fontWeight: "700",
     color: fontColor,
-    marginRight: 8,
-  },
-  projectDate: {
-    fontSize: 12,
-    color: "#999",
+    marginBottom: 8,
+    lineHeight: 24,
   },
   projectDescription: {
     fontSize: 14,
-    color: "#666",
+    color: "#585858",
     lineHeight: 20,
     marginBottom: 12,
   },
-  projectMeta: {
+  projectMetaRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     marginBottom: 12,
-    gap: 16,
+    gap: 12,
   },
-  metaItem: {
+  projectMetaItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
   },
-  metaText: {
-    fontSize: 13,
-    color: "#666",
-    marginLeft: 6,
+  projectMetaText: {
+    fontSize: 12,
+    color: "#7A50EC",
+    fontWeight: "500",
   },
   skillsContainer: {
     flexDirection: "row",
@@ -703,56 +750,71 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "500",
   },
-  freelancerCard: {
-    backgroundColor: whiteColor,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  freelancerHeader: {
+  projectFooter: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
     marginBottom: 12,
   },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 12,
+  authorSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  authorAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
   },
   avatarPlaceholder: {
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "#F0F0F0",
     justifyContent: "center",
     alignItems: "center",
   },
-  freelancerInfo: {
+  authorInfo: {
     flex: 1,
   },
-  freelancerName: {
-    fontSize: 18,
-    fontWeight: "700",
+  authorLabel: {
+    fontSize: 10,
+    color: "#999",
+    marginBottom: 2,
+  },
+  authorName: {
+    fontSize: 13,
+    fontWeight: "600",
     color: fontColor,
-    marginBottom: 4,
   },
-  freelancerTitle: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
+  priceSection: {
+    alignItems: "flex-end",
   },
-  freelancerRating: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  projectType: {
+    fontSize: 11,
+    color: "#999",
+    marginBottom: 2,
   },
-  hourlyRate: {
+  projectPrice: {
     fontSize: 16,
     fontWeight: "700",
     color: primaryColor,
-    marginBottom: 12,
+  },
+  applyButton: {
+    flexDirection: "row",
+    backgroundColor: primaryColor,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  applyButtonText: {
+    color: whiteColor,
+    fontSize: 15,
+    fontWeight: "600",
   },
   emptyContainer: {
     flex: 1,
