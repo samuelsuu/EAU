@@ -1,9 +1,10 @@
-// app/project/[id].tsx - Project Detail Page
+// app/project/[id].tsx - Complete Fixed Project Detail Page
 import {
-    projectDetails,
+    projectsDetails,
     sendMessage,
     addSavedItem,
     removeSavedItem,
+    proposalSubmission,
 } from "@/api/api";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -50,6 +51,8 @@ interface ProjectDetail {
     featured?: boolean;
     saved?: boolean;
     duration?: string;
+    freelancer?: string;
+    language?: string;
     attachments?: { file_id: string; file_url: string; filename: string }[];
     author?: {
         id?: string;
@@ -58,8 +61,25 @@ interface ProjectDetail {
         label?: string;
         rating?: number;
         reviews?: number;
+        online?: boolean;
     };
 }
+
+// Helper function to strip HTML tags
+const stripHtml = (html: string) => {
+    if (!html) return '';
+    return html
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
+        .replace(/&amp;/g, '&') // Replace &amp; with &
+        .replace(/&lt;/g, '<') // Replace &lt; with <
+        .replace(/&gt;/g, '>') // Replace &gt; with >
+        .replace(/&quot;/g, '"') // Replace &quot; with "
+        .replace(/&#039;/g, "'") // Replace &#039; with '
+        .replace(/&#8217;/g, "'") // Replace &#8217; with '
+        .replace(/\n\s*\n/g, '\n') // Remove multiple newlines
+        .trim();
+};
 
 const ProjectDetail = () => {
     const { id } = useLocalSearchParams();
@@ -93,14 +113,65 @@ const ProjectDetail = () => {
     const fetchProjectDetails = async () => {
         try {
             setLoading(true);
-            const response = await projectDetails(id as string);
-            const projectData =
-                response.data?.data?.project || response.data?.project || response.data;
-            setProject(projectData);
-            setSaved(projectData?.saved || false);
-        } catch (error) {
-            console.error("Error fetching project details:", error);
-            Alert.alert("Error", "Failed to load project details");
+            const response = await projectsDetails(id as string);
+            
+            console.log('📦 Project details response:', response.data);
+            
+            // The API returns data in project_detail
+            const projectData = response.data?.project_detail || response.data?.data?.project || response.data?.project || response.data;
+            
+            // Helper to extract skill names from skill objects or strings
+            const extractSkills = (skills: any): string[] => {
+                if (!skills || !Array.isArray(skills)) return [];
+                return skills.map(skill => {
+                    if (typeof skill === 'string') return skill;
+                    if (typeof skill === 'object') return skill.name || skill.slug || skill.id?.toString() || '';
+                    return '';
+                }).filter(Boolean);
+            };
+            
+            // Map the data to match your interface
+            const mappedProject: ProjectDetail = {
+                id: projectData.id?.toString() || id as string,
+                title: projectData.title || '',
+                description: projectData.description,
+                content: projectData.content ? stripHtml(projectData.content) : undefined,
+                budget: projectData.budget,
+                price: projectData.price,
+                deadline: projectData.deadline,
+                skills: extractSkills(projectData.skills),
+                posted_date: projectData.posted_date,
+                publish_date: projectData.publish_date,
+                location: projectData.location,
+                expertise: projectData.expertise,
+                project_type: projectData.project_type,
+                featured: projectData.featured || false,
+                saved: projectData.saved || false,
+                duration: projectData.duration,
+                freelancer: projectData.freelancer,
+                language: projectData.language,
+                attachments: projectData.attachments || [],
+                author: projectData.author ? {
+                    id: projectData.author.id?.toString(),
+                    name: projectData.author.name,
+                    avatar: projectData.author.avatar,
+                    label: projectData.author.label,
+                    rating: projectData.author.rating,
+                    reviews: projectData.author.reviews,
+                    online: projectData.author.online,
+                } : undefined,
+            };
+            
+            console.log('✅ Mapped project data:', mappedProject);
+            
+            setProject(mappedProject);
+            setSaved(mappedProject.saved);
+        } catch (error: any) {
+            console.error("❌ Error fetching project details:", error);
+            Alert.alert(
+                "Error",
+                error?.response?.data?.message || "Failed to load project details"
+            );
         } finally {
             setLoading(false);
         }
@@ -113,21 +184,35 @@ const ProjectDetail = () => {
         setSavingItem(true);
         try {
             if (saved) {
-                // Assuming post_type is 'project'
-                await removeSavedItem({ post_id: project.id, post_type: "project" });
-                setSaved(false);
-                Alert.alert("Success", "Project removed from saved items");
+                const response = await removeSavedItem({ 
+                    post_id: project.id, 
+                    post_type: "project" 
+                });
+                
+                if (response.data?.type === "success" || response.status === 200) {
+                    setSaved(false);
+                    setProject({ ...project, saved: false });
+                    Alert.alert("Success", "Project removed from saved items");
+                }
             } else {
-                // Assuming post_type is 'project'
-                await addSavedItem({ post_id: project.id, post_type: "project" });
-                setSaved(true);
-                Alert.alert("Success", "Project saved successfully");
+                const response = await addSavedItem({ 
+                    post_id: project.id, 
+                    post_type: "project" 
+                });
+                
+                if (response.data?.type === "success" || response.status === 200) {
+                    setSaved(true);
+                    setProject({ ...project, saved: true });
+                    Alert.alert("Success", "Project saved successfully");
+                }
             }
         } catch (error: any) {
-            console.error("Save/Unsave error:", error);
+            console.error("❌ Save/Unsave error:", error);
             Alert.alert(
                 "Error",
-                error?.response?.data?.message || "Failed to save project"
+                error?.response?.data?.message || 
+                error?.response?.data?.message_desc ||
+                "Failed to save project"
             );
         } finally {
             setSavingItem(false);
@@ -145,27 +230,59 @@ const ProjectDetail = () => {
             return;
         }
 
+        if (!applicationData.proposedPrice.trim()) {
+            Alert.alert("Error", "Please enter your proposed price");
+            return;
+        }
+
         setApplying(true);
         try {
-            // TODO: Implement your proposal submission API here
-            await new Promise((resolve) => setTimeout(resolve, 1500)); // Mock API call
-
-            Alert.alert("Success", "Your proposal has been submitted successfully!", [
-                {
-                    text: "OK",
-                    onPress: () => {
-                        setApplyModalVisible(false);
-                        setApplicationData({
-                            coverLetter: "",
-                            proposedPrice: "",
-                            deliveryTime: "",
-                        });
-                    },
-                },
-            ]);
+            console.log('📤 Submitting proposal for project:', id);
+            
+            const proposalData = {
+                post_id: id as string,
+                post_type: "project",
+                proposal_content: applicationData.coverLetter,
+                proposed_amount: applicationData.proposedPrice,
+                delivery_time: applicationData.deliveryTime || "",
+            };
+            
+            console.log('📝 Proposal data:', proposalData);
+            
+            const response = await proposalSubmission(proposalData);
+            
+            console.log('✅ Proposal response:', response.data);
+            
+            if (response.data?.type === "success" || response.status === 200) {
+                Alert.alert(
+                    "Success", 
+                    response.data?.message || "Your proposal has been submitted successfully!",
+                    [
+                        {
+                            text: "OK",
+                            onPress: () => {
+                                setApplyModalVisible(false);
+                                setApplicationData({
+                                    coverLetter: "",
+                                    proposedPrice: "",
+                                    deliveryTime: "",
+                                });
+                                fetchProjectDetails();
+                            },
+                        },
+                    ]
+                );
+            } else {
+                throw new Error(response.data?.message || "Failed to submit proposal");
+            }
         } catch (error: any) {
-            console.error("Application error:", error);
-            Alert.alert("Error", "Failed to submit proposal");
+            console.error("❌ Application error:", error);
+            const errorMessage =
+                error?.response?.data?.message_desc ||
+                error?.response?.data?.message ||
+                error?.message ||
+                "Failed to submit proposal. Please try again.";
+            Alert.alert("Error", errorMessage);
         } finally {
             setApplying(false);
         }
@@ -193,34 +310,42 @@ const ProjectDetail = () => {
 
         setSendingMessage(true);
         try {
+            console.log('💬 Sending message to client:', project.author.id);
+            
             const response = await sendMessage({
                 receiver_id: project.author.id,
                 message: messageText.trim(),
             });
 
+            console.log('✅ Message sent:', response.data);
+
             if (response.data?.type === "success" || response.status === 200) {
-                Alert.alert("Success", "Message sent successfully!", [
-                    {
-                        text: "View Messages",
-                        onPress: () => {
-                            setMessageModalVisible(false);
-                            setMessageText("");
-                            router.push("/(tabs)/messages");
+                Alert.alert(
+                    "Success", 
+                    response.data?.message || "Message sent successfully!",
+                    [
+                        {
+                            text: "View Messages",
+                            onPress: () => {
+                                setMessageModalVisible(false);
+                                setMessageText("");
+                                router.push("/message/messages");
+                            },
                         },
-                    },
-                    {
-                        text: "OK",
-                        onPress: () => {
-                            setMessageModalVisible(false);
-                            setMessageText("");
+                        {
+                            text: "OK",
+                            onPress: () => {
+                                setMessageModalVisible(false);
+                                setMessageText("");
+                            },
                         },
-                    },
-                ]);
+                    ]
+                );
             } else {
-                throw new Error(response.data?.message_desc || "Unknown error");
+                throw new Error(response.data?.message || "Unknown error");
             }
         } catch (error: any) {
-            console.error("Send message error:", error);
+            console.error("❌ Send message error:", error);
             const errorMessage =
                 error?.response?.data?.message_desc ||
                 error?.response?.data?.message ||
@@ -294,25 +419,6 @@ const ProjectDetail = () => {
         );
     };
 
-    // Helper for info boxes
-    const renderInfoBox = (
-        icon: keyof typeof Ionicons.glyphMap,
-        color: string,
-        label: string,
-        value: string | undefined
-    ) => {
-        if (!value) return null;
-        return (
-            <View style={styles.infoBox}>
-                <Ionicons name={icon} size={24} color={color} />
-                <Text style={styles.infoBoxLabel}>{label}</Text>
-                <Text style={styles.infoBoxValue} numberOfLines={1}>
-                    {value}
-                </Text>
-            </View>
-        );
-    };
-
     return (
         <SafeAreaView style={styles.safeArea}>
             {/* Header */}
@@ -345,65 +451,74 @@ const ProjectDetail = () => {
 
             <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
                 <View style={styles.contentContainer}>
-                    {/* Title and Featured Badge */}
-                    <View style={styles.titleContainer}>
-                        <Text style={styles.title}>{project.title}</Text>
-                        {project.featured && (
-                            <View style={styles.featuredBadge}>
-                                <Ionicons name="flash" size={14} color={primaryColor} />
-                                <Text style={styles.featuredText}>Featured</Text>
-                            </View>
-                        )}
-                    </View>
-
-                    {/* Price and Type */}
-                    <View style={styles.priceAndType}>
-                        <Text style={styles.priceText}>
-                            {project.price || project.budget || "Budget N/A"}
-                        </Text>
-                        <View style={styles.projectTypeTag}>
-                            <Text style={styles.projectTypeText}>
-                                {project.project_type === "hourly" ? "Hourly Rate" : "Fixed Price"}
+                    {/* Header with date and featured badge */}
+                    <View style={styles.projectCardHeader}>
+                        <View style={styles.projectHeaderLeft}>
+                            <Ionicons name="calendar-outline" size={14} color="#999" style={{ marginRight: 6 }} />
+                            <Text style={styles.projectPostedDate}>
+                                {project.publish_date || project.posted_date || "Recently posted"}
                             </Text>
+                            {project.featured && (
+                                <View style={styles.featuredBadge}>
+                                    <Ionicons name="flash" size={12} color={primaryColor} />
+                                    <Text style={styles.featuredText}>Featured</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
 
-                    {/* Quick Info Boxes */}
-                    <View style={styles.infoBoxesContainer}>
-                        {renderInfoBox(
-                            "location-outline",
-                            "#7A50EC",
-                            "Location",
-                            project.location
-                        )}
-                        {renderInfoBox(
-                            "calendar-outline",
-                            "#4CAF50",
-                            "Posted",
-                            project.posted_date || project.publish_date
-                        )}
-                        {renderInfoBox(
-                            "briefcase-outline",
-                            "#912018",
-                            "Expertise",
-                            project.expertise
-                        )}
-                        {renderInfoBox(
-                            "time-outline",
-                            secondaryColor,
-                            "Deadline",
-                            project.deadline
-                        )}
-                    </View>
+                    {/* Title */}
+                    <Text style={styles.title}>{project.title}</Text>
 
                     {/* Description */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Project Description</Text>
-                        <Text style={styles.descriptionText}>
-                            {project.content ||
-                                project.description ||
-                                "No detailed description provided."}
-                        </Text>
+                    {(project.content || project.description) && (
+                        <View style={styles.section}>
+                            <Text style={styles.descriptionText}>
+                                {project.content || project.description}
+                            </Text>
+                        </View>
+                    )}
+
+                    {/* Meta Information Row */}
+                    <View style={styles.projectMetaRow}>
+                        {project.location && (
+                            <View style={styles.projectMetaItem}>
+                                <Ionicons name="location-outline" size={16} color="#7A50EC" />
+                                <Text style={styles.projectMetaText}>{project.location}</Text>
+                            </View>
+                        )}
+                        {project.expertise && (
+                            <View style={styles.projectMetaItem}>
+                                <Ionicons name="briefcase-outline" size={16} color="#912018" />
+                                <Text style={[styles.projectMetaText, { color: "#912018" }]}>
+                                    {project.expertise}
+                                </Text>
+                            </View>
+                        )}
+                        {project.freelancer && (
+                            <View style={styles.projectMetaItem}>
+                                <Ionicons name="people-outline" size={16} color="#4CAF50" />
+                                <Text style={[styles.projectMetaText, { color: "#4CAF50" }]}>
+                                    {project.freelancer}
+                                </Text>
+                            </View>
+                        )}
+                        {project.duration && (
+                            <View style={styles.projectMetaItem}>
+                                <Ionicons name="time-outline" size={16} color={secondaryColor} />
+                                <Text style={[styles.projectMetaText, { color: secondaryColor }]}>
+                                    {project.duration}
+                                </Text>
+                            </View>
+                        )}
+                        {project.language && (
+                            <View style={styles.projectMetaItem}>
+                                <Ionicons name="language-outline" size={16} color="#2E90FA" />
+                                <Text style={[styles.projectMetaText, { color: "#2E90FA" }]}>
+                                    {project.language}
+                                </Text>
+                            </View>
+                        )}
                     </View>
 
                     {/* Skills */}
@@ -438,38 +553,60 @@ const ProjectDetail = () => {
                         </View>
                     )}
 
-                    {/* Client Information */}
-                    {project.author && (
-                        <TouchableOpacity
-                            style={styles.clientSection}
-                            // Assuming you have a route for client/author profiles
-                            onPress={() => project.author?.id && router.push(`/client/${project.author.id}`)}
-                        >
-                            <Text style={styles.sectionTitle}>About the Client</Text>
-                            <View style={styles.clientContent}>
-                                <Image
-                                    source={{ uri: project.author.avatar || 'https://via.placeholder.com/150' }}
-                                    style={styles.clientAvatar}
+                    {/* Footer with author and price */}
+                    <View style={styles.projectFooter}>
+                        <View style={styles.authorSection}>
+                            {project.author?.avatar ? (
+                                <Image 
+                                    source={{ uri: project.author.avatar }} 
+                                    style={styles.authorAvatar}
                                 />
-                                <View style={styles.clientInfo}>
-                                    <Text style={styles.clientName}>
-                                        {project.author.name || "Anonymous Client"}
+                            ) : (
+                                <View style={[styles.authorAvatar, styles.avatarPlaceholder]}>
+                                    <Ionicons name="person" size={18} color="#999" />
+                                </View>
+                            )}
+                            <View style={styles.authorInfo}>
+                                {project.author?.label && (
+                                    <Text style={styles.authorLabel} numberOfLines={1}>
+                                        {project.author.label}
                                     </Text>
-                                    {project.author.label && (
-                                        <Text style={styles.clientLabel}>{project.author.label}</Text>
-                                    )}
+                                )}
+                                <Text style={styles.authorName} numberOfLines={1}>
+                                    {project.author?.name || "Anonymous"}
+                                </Text>
+                                {project.author?.rating !== undefined && (
                                     <View style={styles.clientMeta}>
-                                        {project.author.rating !== undefined &&
-                                            renderRating(project.author.rating)}
+                                        {renderRating(project.author.rating)}
                                         {project.author.reviews !== undefined && (
                                             <Text style={styles.clientReviewCount}>
                                                 ({project.author.reviews} Reviews)
                                             </Text>
                                         )}
                                     </View>
-                                </View>
-                                <Ionicons name="chevron-forward" size={24} color="#ccc" />
+                                )}
                             </View>
+                        </View>
+
+                        <View style={styles.priceSection}>
+                            <Text style={styles.projectType}>
+                                {project.project_type === "fixed" ? "Fixed Price" : "Hourly Rate"}
+                            </Text>
+                            <Text style={styles.projectPrice}>
+                                {project.price || project.budget || "Negotiable"}
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* View Client Profile Button */}
+                    {project.author?.id && (
+                        <TouchableOpacity
+                            style={styles.viewProfileButton}
+                            onPress={() => router.push(`/freelancer/${project.author?.id}`)}
+                        >
+                            <Ionicons name="person-outline" size={20} color={primaryColor} />
+                            <Text style={styles.viewProfileText}>View Client Profile</Text>
+                            <Ionicons name="chevron-forward" size={20} color={primaryColor} />
                         </TouchableOpacity>
                     )}
                 </View>
@@ -484,11 +621,12 @@ const ProjectDetail = () => {
                     onPress={handleSendMessage}
                     disabled={!project.author?.id}
                 >
-                    <Ionicons name="chatbubble-outline" size={24} color={primaryColor} />
+                    <Ionicons name="chatbubble-outline" size={20} color={primaryColor} />
                     <Text style={styles.messageButtonText}>Message</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.applyButton} onPress={handleApply}>
                     <Text style={styles.applyButtonText}>Submit Proposal</Text>
+                    <Ionicons name="arrow-forward" size={18} color={whiteColor} />
                 </TouchableOpacity>
             </View>
 
@@ -514,9 +652,14 @@ const ProjectDetail = () => {
                         <ScrollView showsVerticalScrollIndicator={false}>
                             {project && (
                                 <View style={styles.jobPreview}>
-                                    <Text style={styles.jobPreviewTitle} numberOfLines={2}>
-                                        {project.title}
-                                    </Text>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.jobPreviewTitle} numberOfLines={2}>
+                                            {project.title}
+                                        </Text>
+                                        <Text style={styles.jobPreviewType}>
+                                            {project.project_type === "fixed" ? "Fixed Price" : "Hourly Rate"}
+                                        </Text>
+                                    </View>
                                     <Text style={styles.jobPreviewPrice}>
                                         {project.price || project.budget || 'Negotiable'}
                                     </Text>
@@ -537,12 +680,12 @@ const ProjectDetail = () => {
                                 textAlignVertical="top"
                             />
 
-                            <Text style={styles.inputLabel}>Proposed Price (Required)</Text>
+                            <Text style={styles.inputLabel}>Proposed Price *</Text>
                             <TextInput
                                 style={styles.input}
                                 placeholder="Enter your bid/total project cost"
                                 placeholderTextColor="#999"
-                                keyboardType="default"
+                                keyboardType="numeric"
                                 value={applicationData.proposedPrice}
                                 onChangeText={(text) =>
                                     setApplicationData({ ...applicationData, proposedPrice: text })
@@ -572,7 +715,11 @@ const ProjectDetail = () => {
                                 <TouchableOpacity
                                     style={[styles.submitButton, applying && { opacity: 0.7 }]}
                                     onPress={submitApplication}
-                                    disabled={applying || !applicationData.coverLetter.trim()}
+                                    disabled={
+                                        applying || 
+                                        !applicationData.coverLetter.trim() ||
+                                        !applicationData.proposedPrice.trim()
+                                    }
                                 >
                                     {applying ? (
                                         <ActivityIndicator color={whiteColor} />
@@ -637,7 +784,6 @@ const ProjectDetail = () => {
 
 export default ProjectDetail;
 
-// Styles for ProjectDetail (reusing/adapting TaskDetail styles)
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
@@ -654,13 +800,12 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: "#666",
     },
-    // Header
     header: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingVertical: 12,
         backgroundColor: whiteColor,
         borderBottomWidth: 1,
         borderBottomColor: "#F0F0F0",
@@ -674,8 +819,8 @@ const styles = StyleSheet.create({
     },
     headerButton: {
         padding: 8,
+        width: 40,
     },
-    // Error
     errorContainer: {
         flex: 1,
         justifyContent: "center",
@@ -700,7 +845,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: "600",
     },
-    // Content
     scrollView: {
         flex: 1,
     },
@@ -708,99 +852,79 @@ const styles = StyleSheet.create({
         padding: 20,
         backgroundColor: whiteColor,
     },
-    titleContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 10,
+    // Card Header Styles - Matching Home
+    projectCardHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 16,
     },
-    title: {
-        fontSize: 24,
-        fontWeight: "800",
-        color: fontColor,
+    projectHeaderLeft: {
+        flexDirection: "row",
+        alignItems: "center",
         flex: 1,
-        marginRight: 10,
-        lineHeight: 30,
+    },
+    projectPostedDate: {
+        fontSize: 13,
+        color: "#999",
+        fontWeight: "500",
     },
     featuredBadge: {
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: "#FFE5DD",
         paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 15,
+        paddingVertical: 4,
+        borderRadius: 12,
+        marginLeft: 12,
         gap: 4,
     },
     featuredText: {
-        fontSize: 12,
+        fontSize: 11,
         color: primaryColor,
         fontWeight: "600",
     },
-    priceAndType: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingBottom: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F0F0F0',
-        marginBottom: 20,
-    },
-    priceText: {
+    // Title - Matching Home
+    title: {
         fontSize: 22,
         fontWeight: "700",
-        color: primaryColor,
-    },
-    projectTypeTag: {
-        backgroundColor: secondaryColor,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 6,
-    },
-    projectTypeText: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: whiteColor,
-    },
-    infoBoxesContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        marginBottom: 20,
-        gap: 10,
-    },
-    infoBox: {
-        width: '48%',
-        backgroundColor: backgroundColor,
-        borderRadius: 12,
-        padding: 15,
-        alignItems: 'flex-start',
-        borderWidth: 1,
-        borderColor: '#EFEFEF',
-    },
-    infoBoxLabel: {
-        fontSize: 12,
-        color: '#999',
-        marginTop: 5,
-    },
-    infoBoxValue: {
-        fontSize: 14,
-        fontWeight: "600",
         color: fontColor,
-        marginTop: 2,
+        marginBottom: 12,
+        lineHeight: 28,
     },
-    section: {
-        marginBottom: 25,
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: fontColor,
-        marginBottom: 10,
-    },
+    // Description - Matching Home
     descriptionText: {
         fontSize: 15,
-        color: "#555",
-        lineHeight: 24,
+        color: "#585858",
+        lineHeight: 22,
+        marginBottom: 16,
+    },
+    // Meta Row - Matching Home
+    projectMetaRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        marginBottom: 20,
+        gap: 14,
+    },
+    projectMetaItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+    },
+    projectMetaText: {
+        fontSize: 13,
+        color: "#7A50EC",
+        fontWeight: "500",
+    },
+    // Skills Section
+    section: {
+        marginBottom: 24,
+    },
+    sectionTitle: {
+        fontSize: 17,
+        fontWeight: "700",
+        color: fontColor,
+        marginBottom: 12,
     },
     skillsContainer: {
         flexDirection: "row",
@@ -808,137 +932,171 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     skillTag: {
-        backgroundColor: highlightColor,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
+        backgroundColor: backgroundColor,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 8,
     },
     skillText: {
         fontSize: 13,
-        color: primaryColor,
+        color: "#666",
         fontWeight: "500",
     },
+    // Attachments
     attachmentItem: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: backgroundColor,
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 8,
+        padding: 14,
+        borderRadius: 10,
+        marginBottom: 10,
     },
     attachmentText: {
         flex: 1,
         fontSize: 14,
         color: fontColor,
-        marginLeft: 8,
+        marginLeft: 10,
     },
     downloadButton: {
-        padding: 4,
+        padding: 6,
     },
-    // Client Info
-    clientSection: {
-        paddingTop: 15,
+    // Footer - Matching Home
+    projectFooter: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingTop: 16,
+        paddingBottom: 16,
+        marginTop: 16,
         borderTopWidth: 1,
-        borderTopColor: '#F0F0F0',
+        borderTopColor: "#F0F0F0",
     },
-    clientContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        backgroundColor: backgroundColor,
-        borderRadius: 12,
-        padding: 12,
-    },
-    clientAvatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        marginRight: 15,
-    },
-    clientInfo: {
+    authorSection: {
+        flexDirection: "row",
+        alignItems: "center",
         flex: 1,
     },
-    clientName: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: fontColor,
+    authorAvatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        marginRight: 12,
     },
-    clientLabel: {
-        fontSize: 12,
-        color: secondaryColor,
+    avatarPlaceholder: {
+        backgroundColor: "#F0F0F0",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    authorInfo: {
+        flex: 1,
+    },
+    authorLabel: {
+        fontSize: 11,
+        color: "#999",
+        fontWeight: "500",
+        marginBottom: 2,
+    },
+    authorName: {
+        fontSize: 15,
         fontWeight: "600",
-        marginTop: 2,
+        color: fontColor,
+        marginBottom: 4,
     },
     clientMeta: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 5,
-        flexWrap: 'wrap',
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    ratingStarsContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 2,
+    },
+    ratingNumber: {
+        fontSize: 13,
+        color: "#666",
+        fontWeight: "600",
+        marginLeft: 4,
     },
     clientReviewCount: {
         fontSize: 12,
         color: "#999",
-        marginLeft: 4,
-        marginRight: 10,
     },
-    ratingStarsContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginRight: 8,
+    priceSection: {
+        alignItems: "flex-end",
     },
-    ratingNumber: {
-        fontSize: 14,
+    projectType: {
+        fontSize: 12,
+        color: "#999",
+        fontWeight: "500",
+        marginBottom: 4,
+    },
+    projectPrice: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: primaryColor,
+    },
+    // View Profile Button
+    viewProfileButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: backgroundColor,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        marginTop: 16,
+        gap: 8,
+    },
+    viewProfileText: {
+        fontSize: 15,
         fontWeight: "600",
-        color: "#666",
-        marginLeft: 4,
+        color: primaryColor,
+        flex: 1,
+        textAlign: "center",
     },
-    // Footer
+    // Footer Buttons
     footer: {
         flexDirection: "row",
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderTopWidth: 1,
-        borderTopColor: "#E5E5E5",
+        padding: 16,
         backgroundColor: whiteColor,
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 5,
+        borderTopWidth: 1,
+        borderTopColor: "#F0F0F0",
+        gap: 12,
     },
     messageButton: {
-        width: 100,
-        height: 50,
-        borderRadius: 12,
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: whiteColor,
+        paddingVertical: 14,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: primaryColor,
-        justifyContent: "center",
-        alignItems: "center",
-        marginRight: 12,
+        gap: 8,
     },
     messageButtonText: {
-        fontSize: 12,
+        fontSize: 15,
         fontWeight: "600",
         color: primaryColor,
     },
     applyButton: {
         flex: 1,
-        backgroundColor: primaryColor,
-        borderRadius: 12,
-        height: 50,
-        justifyContent: "center",
+        flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: primaryColor,
+        paddingVertical: 14,
+        borderRadius: 10,
+        gap: 8,
     },
     applyButtonText: {
+        fontSize: 15,
+        fontWeight: "600",
         color: whiteColor,
-        fontSize: 16,
-        fontWeight: "700",
     },
-    // Modal Styles (Reused)
+    // Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -949,15 +1107,14 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         padding: 20,
-        maxHeight: "90%",
+        maxHeight: "85%",
     },
     messageModalContent: {
         backgroundColor: whiteColor,
-        borderRadius: 24,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
         padding: 20,
-        margin: 20,
-        alignSelf: 'center',
-        width: '90%',
+        maxHeight: "70%",
     },
     modalHeader: {
         flexDirection: "row",
@@ -973,27 +1130,31 @@ const styles = StyleSheet.create({
     closeButton: {
         padding: 4,
     },
+    // Job Preview in Modal
     jobPreview: {
+        flexDirection: "row",
         backgroundColor: backgroundColor,
         padding: 16,
         borderRadius: 12,
         marginBottom: 20,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        gap: 12,
     },
     jobPreviewTitle: {
         fontSize: 16,
         fontWeight: "600",
         color: fontColor,
-        flexShrink: 1,
-        marginRight: 10,
+        marginBottom: 6,
+    },
+    jobPreviewType: {
+        fontSize: 13,
+        color: "#666",
     },
     jobPreviewPrice: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: "700",
         color: primaryColor,
     },
+    // Form Inputs
     inputLabel: {
         fontSize: 14,
         fontWeight: "600",
@@ -1003,33 +1164,35 @@ const styles = StyleSheet.create({
     input: {
         borderWidth: 1,
         borderColor: "#E5E5E5",
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        borderRadius: 10,
+        padding: 14,
         fontSize: 15,
         color: fontColor,
+        backgroundColor: backgroundColor,
         marginBottom: 16,
     },
     textArea: {
         borderWidth: 1,
         borderColor: "#E5E5E5",
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        borderRadius: 10,
+        padding: 14,
         fontSize: 15,
         color: fontColor,
-        marginBottom: 16,
         minHeight: 120,
+        backgroundColor: backgroundColor,
+        marginBottom: 16,
+        textAlignVertical: "top",
     },
+    // Modal Buttons
     modalButtons: {
         flexDirection: "row",
-        marginTop: 8,
+        marginTop: 10,
         gap: 12,
     },
     cancelButton: {
         flex: 1,
         paddingVertical: 14,
-        borderRadius: 12,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: "#E5E5E5",
         alignItems: "center",
@@ -1041,10 +1204,11 @@ const styles = StyleSheet.create({
     },
     submitButton: {
         flex: 1,
-        paddingVertical: 14,
-        borderRadius: 12,
         backgroundColor: primaryColor,
+        paddingVertical: 14,
+        borderRadius: 10,
         alignItems: "center",
+        justifyContent: "center",
     },
     submitButtonText: {
         fontSize: 15,

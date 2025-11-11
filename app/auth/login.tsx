@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import CustomTextInput from "@/components/base/TextInput";
 import Button from "@/components/base/Button";
 import AlertComponent from "@/components/base/AlertComponent";
-import { loginUser } from "@/api/api";
+import { loginWithSupabase } from "@/services/login";
 import { setToken, setUser } from "@/redux/slices/authSlice";
 import {
   primaryColor,
@@ -100,69 +100,53 @@ const Login: React.FC = () => {
 
     setLoading(true);
     try {
-      const loginData = {
+      console.log("📤 Attempting login with:", email.trim());
+
+      const result = await loginWithSupabase({
         email: email.trim(),
         password: password,
-      };
+      });
 
-      console.log("📤 Attempting login with:", { email: loginData.email });
+      console.log("📥 Login result:", result);
 
-      const response = await loginUser(loginData);
-      
-      console.log("📥 Full API response:", response);
-      console.log("📥 Response data:", response?.data);
-
-      const data = response?.data;
-      
-      if (data?.type === "success" && data?.token && data?.user) {
+      if (result.success && result.data) {
         console.log("✅ Login successful!");
-        
-        const userWithEmail = {
-          ...data.user,
-          email: email.trim(),
-          user_email: email.trim(),
-        };
-        
-        dispatch(setToken(data.token));
-        dispatch(setUser(userWithEmail));
-        
-        console.log("💾 Saved user data:", userWithEmail);
+
+        // Dispatch token and user to Redux
+        dispatch(setToken(result.data.token));
+        dispatch(setUser(result.data.user));
+
+        console.log("💾 Saved user data:", result.data.user);
 
         setAlert({
           visible: true,
           type: "success",
-          message: data.message || "Login Successful",
-          message_desc: data.message_desc || "Welcome back!",
+          message: "Login Successful",
+          message_desc: `Welcome back, ${result.data.user.first_name}!`,
         });
-        
+
+        // Clear form
         setEmail("");
         setPassword("");
+        setErrors({});
+        setTouched({});
       } else {
-        console.error("❌ Login failed");
+        console.error("❌ Login failed:", result.error);
         setAlert({
           visible: true,
           type: "error",
           message: "Login Failed",
-          message_desc: data?.message || data?.message_desc || "Invalid credentials. Please try again.",
+          message_desc: result.error || "Invalid credentials. Please try again.",
         });
       }
     } catch (error: any) {
-      console.error("❌ Login error:", error);
-      
-      const errorData = error?.response?.data;
-      const errorMessage = 
-        errorData?.message_desc ||
-        errorData?.message ||
-        error?.message ||
-        "An unexpected error occurred. Please try again.";
-      
-      console.error("❌ Error message:", errorMessage);
-      
+      console.error("❌ Unexpected login error:", error);
+
       setAlert({
         visible: true,
         type: "error",
         message: "Login Failed",
-        message_desc: errorMessage,
+        message_desc: error?.message || "An unexpected error occurred. Please try again.",
       });
     } finally {
       setLoading(false);
@@ -209,10 +193,15 @@ const Login: React.FC = () => {
 
             {/* Logo */}
             <View style={styles.logoContainer}>
-              {/* <View style={styles.logoCircle}>
-                <Ionicons name="lock-closed" size={40} color={whiteColor} />
-              </View> */}
-              <Image source={require('@/assets/images/splash-icon.png')} style={{ marginTop: 10, width: windowWidth * 0.5, height: 60, resizeMode: 'contain' }} />
+              <Image 
+                source={require('@/assets/images/splash-icon.png')} 
+                style={{ 
+                  marginTop: 10, 
+                  width: windowWidth * 0.5, 
+                  height: 60, 
+                  resizeMode: 'contain' 
+                }} 
+              />
             </View>
 
             {/* Header */}

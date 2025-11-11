@@ -83,6 +83,7 @@ function RootLayoutNav() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
          <Stack.Screen name="task" options={{ headerShown: false }} />
          <Stack.Screen name="project" options={{ headerShown: false }} />
+            <Stack.Screen name="message/messages" options={{ headerShown: false }} />
       </Stack>
       <AlertDialog />
     </ProtectedRoute>

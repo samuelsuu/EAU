@@ -1,10 +1,24 @@
 // app/(tabs)/artisan.tsx - Complete with Enhanced Profile Modal & Messaging
-import { freelancersFilters, getFreelancersList, freelancersDetails, sendMessage } from "@/api/api";
+import {
+  backgroundColor,
+  fontColor,
+  primaryColor,
+  secondaryColor,
+  whiteColor,
+} from "@/constants/GlobalConstants";
+import {
+  getArtisanById,
+  getArtisanFilters,
+  getArtisansList,
+  sendMessageToArtisan,
+} from "@/services/artisan";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Dimensions,
   FlatList,
   Image,
   Modal,
@@ -15,17 +29,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Alert,
-  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  primaryColor,
-  secondaryColor,
-  backgroundColor,
-  whiteColor,
-  fontColor,
-} from "@/constants/GlobalConstants";
+import { useSelector } from "react-redux";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -64,6 +70,7 @@ interface FilterData {
 
 const Artisan = () => {
   const router = useRouter();
+  const authUser = useSelector((state: any) => state.auth.user);
 
   // State
   const [artisans, setArtisans] = useState<Freelancer[]>([]);
@@ -104,20 +111,24 @@ const Artisan = () => {
       const params = {
         keyword: searchQuery,
         ...filters,
+        order: filters.order as "asc" | "desc",
         per_page: 50,
         paged: 1,
       };
 
-      const res = await getFreelancersList(params);
-      const freelancersData =
-        res.data?.data?.freelancers ||
-        res.data?.freelancers ||
-        res.data?.data ||
-        [];
-      setArtisans(freelancersData);
-      setFilteredArtisans(freelancersData);
+      const res = await getArtisansList(params);
+      if (res.success && res.data) {
+        setArtisans(res.data);
+        setFilteredArtisans(res.data);
+      } else {
+        console.error("Error fetching artisans:", res.error);
+        setArtisans([]);
+        setFilteredArtisans([]);
+      }
     } catch (error) {
       console.error("Error fetching artisans:", error);
+      setArtisans([]);
+      setFilteredArtisans([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -127,8 +138,12 @@ const Artisan = () => {
   // Fetch filter options
   const fetchFilterOptions = async () => {
     try {
-      const res = await freelancersFilters();
-      setFilterData(res.data?.data?.filters || res.data?.filters || null);
+      const res = await getArtisanFilters();
+      if (res.success && res.data) {
+        setFilterData(res.data);
+      } else {
+        console.error("Error fetching filter options:", res.error);
+      }
     } catch (error) {
       console.error("Error fetching filter options:", error);
     }
@@ -192,13 +207,18 @@ const Artisan = () => {
     setDetailModalVisible(true);
     
     try {
-      const response = await freelancersDetails(freelancer.id);
-      const detailData = response.data?.data?.freelancer_detail || response.data?.freelancer_detail;
-      
-      setSelectedFreelancer({
-        ...freelancer,
-        ...detailData,
-      });
+      const response = await getArtisanById(freelancer.id);
+      if (response.success && response.data) {
+        const artisanData = {
+          ...freelancer,
+          ...response.data,
+          location: response.data.location || freelancer.location || undefined,
+        };
+        setSelectedFreelancer(artisanData as Freelancer);
+      } else {
+        console.error("Error fetching freelancer details:", response.error);
+        setSelectedFreelancer(freelancer);
+      }
     } catch (error) {
       console.error("Error fetching freelancer details:", error);
       setSelectedFreelancer(freelancer);
@@ -219,15 +239,20 @@ const Artisan = () => {
       return;
     }
 
+    if (!authUser?.id) {
+      Alert.alert("Error", "You must be logged in to send messages");
+      return;
+    }
+
     setSendingMessage(true);
     try {
-      const response = await sendMessage({
-        activity_id: selectedFreelancer.id,
+      const response = await sendMessageToArtisan({
+        sender_id: authUser.id,
         receiver_id: selectedFreelancer.id,
-        message: messageText.trim(),
+        content: messageText.trim(),
       });
 
-      if (response.data?.type === "success") {
+      if (response.success) {
         Alert.alert(
           "Success",
           "Message sent successfully!",
@@ -238,7 +263,7 @@ const Artisan = () => {
                 setMessageModalVisible(false);
                 setDetailModalVisible(false);
                 setMessageText("");
-                router.push("/(tabs)/messages");
+                router.push("/message/messages");
               },
             },
             {
@@ -250,13 +275,12 @@ const Artisan = () => {
             },
           ]
         );
+      } else {
+        Alert.alert("Error", response.error || "Failed to send message");
       }
     } catch (error: any) {
       console.error("Send message error:", error);
-      const errorMessage = error?.response?.data?.message_desc || 
-                          error?.response?.data?.message || 
-                          "Failed to send message";
-      Alert.alert("Error", errorMessage);
+      Alert.alert("Error", error?.message || "Failed to send message");
     } finally {
       setSendingMessage(false);
     }

@@ -208,7 +208,7 @@ const TaskDetail = () => {
                             onPress: () => {
                                 setMessageModalVisible(false);
                                 setMessageText("");
-                                router.push("/(tabs)/messages");
+                                router.push("/message/messages");
                             },
                         },
                         {

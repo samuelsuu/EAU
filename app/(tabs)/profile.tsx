@@ -1,29 +1,33 @@
-import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  Image,
-  ActivityIndicator,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  Alert,
-  Modal,
-  TextInput,
-  Switch,
-} from "react-native";
-import { getProfileData, updateProfileData, updatePassword } from "@/api/api";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import { useSelector, useDispatch } from "react-redux";
-import { setUser, logout } from "@/redux/slices/authSlice";
-import { clearAllStorage, saveProfileBackup, getProfileBackup } from "@/utils/storageUtils";
-import {
+  backgroundColor,
   primaryColor,
   secondaryColor,
-  backgroundColor,
 } from "@/constants/GlobalConstants";
+import { supabase } from "@/lib/supabase";
+import { logout, setUser } from "@/redux/slices/authSlice";
+import { getProfileById, logoutUser, updateProfileById } from "@/services/login";
+import { clearAllStorage, getProfileBackup, saveProfileBackup } from "@/utils/storageUtils";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useDispatch, useSelector } from "react-redux";
 
 interface UserProfile {
   id?: string;
@@ -43,16 +47,31 @@ interface UserProfile {
   country?: string;
   skills?: string[];
   rating?: number;
+  completed_projects?: number;
   completedProjects?: number;
+  member_since?: string;
   memberSince?: string;
   first_name?: string;
   last_name?: string;
   wallet_amount?: string;
-  is_verified?: string;
+  is_verified?: boolean | string;
   notifications?: number;
-  deactive_account?: number;
-  identity_verified?: string;
-  visible_profile?: string;
+  deactive_account?: boolean | number;
+  identity_verified?: boolean | string;
+  visible_profile?: boolean | string;
+  is_available?: boolean;
+}
+
+interface EditForm {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  bio: string;
+  location: string;
+  country: string;
+  role: "user" | "artisan";
+  skills: string[];
 }
 
 const Profile = () => {
@@ -62,14 +81,14 @@ const Profile = () => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
   
   const router = useRouter();
   const dispatch = useDispatch();
   const authUser = useSelector((state: any) => state.auth.user);
   const token = useSelector((state: any) => state.auth.token);
 
-  // Edit form state
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<EditForm>({
     first_name: "",
     last_name: "",
     email: "",
@@ -77,9 +96,12 @@ const Profile = () => {
     bio: "",
     location: "",
     country: "",
+    role: "user",
+    skills: [],
   });
 
-  // Settings form state
+  const [newSkill, setNewSkill] = useState("");
+
   const [settingsForm, setSettingsForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -88,58 +110,110 @@ const Profile = () => {
     pushNotifications: true,
   });
 
-  // Compute display name
+  const [avatarUploading, setAvatarUploading] = useState(false);
+
+  const handlePickAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission denied", "Permission to access media library is required.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+        base64: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const mime = asset.mimeType?.toLowerCase();
+      const fileName = asset.fileName?.toLowerCase();
+      const isPng = mime?.includes("png") || fileName?.endsWith(".png");
+      const isJpeg = mime?.includes("jpeg") || mime?.includes("jpg") || fileName?.match(/\.jpe?g$/);
+
+      if (mime && !(isPng || isJpeg)) {
+        Alert.alert("Unsupported format", "Please select a JPG or PNG image.");
+        return;
+      }
+
+      setAvatarUploading(true);
+
+      const manip = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 300 } }],
+        { compress: 0.7, format: isPng ? ImageManipulator.SaveFormat.PNG : ImageManipulator.SaveFormat.JPEG }
+      );
+
+      if (user?.id) {
+        const updateRes = await updateProfileById(user.id, { avatar: manip.uri });
+        if (updateRes.success) {
+          setUserProfile((prev) => (prev ? { ...prev, avatar: manip.uri } : prev));
+          dispatch(setUser({ ...user, avatar: manip.uri }));
+          await saveProfileBackup({ ...user, avatar: manip.uri });
+        } else {
+          Alert.alert("Error", updateRes.error || "Failed to update avatar.");
+        }
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to pick image.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const displayName = React.useMemo(() => {
     const profileName = user?.name || user?.user_name || user?.username;
     const authName = authUser?.user_name || authUser?.name || authUser?.username;
     return profileName || authName || "User";
   }, [user, authUser]);
 
-  // Compute display email
   const displayEmail = React.useMemo(() => {
     const profileEmail = user?.email || user?.user_email;
     const authEmail = authUser?.email || authUser?.user_email || authUser?.userEmail;
     return profileEmail || authEmail || "Email not provided";
   }, [user, authUser]);
 
-  // Compute user ID
   const userId = React.useMemo(() => {
     const profileId = user?.user_id || user?.id;
     const authId = authUser?.user_id || authUser?.id;
     return profileId || authId || "N/A";
   }, [user, authUser]);
 
-  // Compute user type/role
   const userType = React.useMemo(() => {
     const profileType = user?.user_type || user?.role;
     const authType = authUser?.user_type || authUser?.role;
     return profileType || authType;
   }, [user, authUser]);
 
-  // Load profile with fallback chain - FIXED: Persisted data takes priority
+  const isAccountDeactivated = React.useMemo(() => {
+    const deactiveValue = user?.deactive_account;
+    return deactiveValue === true || deactiveValue === 1 || deactiveValue === "1";
+  }, [user]);
+
   const loadProfile = async (forceApiUpdate = false) => {
     try {
-      const res = await getProfileData();
-      const profileData = res.data?.data || res.data;
+      const res = await getProfileById(authUser?.id);
+      if (!res.success) throw new Error(res.error);
+      const profileData = res.data;
       
       console.log("📋 Profile API Response:", profileData);
       
-      // CRITICAL: Check if we have newer persisted data
       const persistedData = authUser;
       const hasPersistedData = persistedData && Object.keys(persistedData).length > 0;
       
-      // If we have persisted data and not forcing API update, prefer persisted data
       let mergedData;
       if (hasPersistedData && !forceApiUpdate) {
         console.log("🔒 Using persisted data (has priority over API)");
-        // Persisted data takes priority, only fill missing fields from API
         mergedData = {
-          ...profileData, // Base: API data
-          ...persistedData, // Override: Persisted data (has priority)
+          ...profileData,
+          ...persistedData,
         };
       } else {
         console.log("🌐 Using API data (force update or no persisted data)");
-        // API data takes priority on force update or first load
         mergedData = {
           ...persistedData,
           ...profileData,
@@ -148,21 +222,18 @@ const Profile = () => {
       
       console.log("🔄 Merged profile data:", mergedData);
       
-      // Only update if data is different or if forcing
       const currentDataStr = JSON.stringify(user);
       const newDataStr = JSON.stringify(mergedData);
       
       if (currentDataStr !== newDataStr || forceApiUpdate) {
         setUserProfile(mergedData);
         
-        // Only update Redux if forcing or no persisted data
         if (forceApiUpdate || !hasPersistedData) {
           dispatch(setUser(mergedData));
           await saveProfileBackup(mergedData);
         }
       }
       
-      // Populate edit form
       const fullName = mergedData?.user_name || mergedData?.name || "";
       const nameParts = fullName.trim().split(" ");
       const firstName = mergedData?.first_name || nameParts[0] || "";
@@ -176,20 +247,18 @@ const Profile = () => {
         bio: mergedData?.bio || "",
         location: mergedData?.location || "",
         country: mergedData?.country || "",
+        role: mergedData?.role || 'user',
+        skills: mergedData?.skills || [],
       });
     } catch (error: any) {
       console.log("❌ Profile API error:", error);
       
-      // Fallback chain
       let fallbackData = null;
       
-      // Fallback 1: Use Redux persisted data
       if (authUser && Object.keys(authUser).length > 0) {
         console.log("📋 Fallback 1: Using Redux persisted data");
         fallbackData = authUser;
-      } 
-      // Fallback 2: Check AsyncStorage backup
-      else {
+      } else {
         console.log("📦 Fallback 2: Checking AsyncStorage backup");
         fallbackData = await getProfileBackup();
       }
@@ -197,7 +266,6 @@ const Profile = () => {
       if (fallbackData) {
         setUserProfile(fallbackData);
         
-        // If we got data from backup but not Redux, update Redux
         if (!authUser || Object.keys(authUser).length === 0) {
           dispatch(setUser(fallbackData));
         }
@@ -213,6 +281,8 @@ const Profile = () => {
           bio: fallbackData?.bio || "",
           location: fallbackData?.location || "",
           country: fallbackData?.country || "",
+          role: fallbackData?.role || 'user',
+          skills: fallbackData?.skills || [],
         });
       } else {
         Alert.alert(
@@ -231,56 +301,14 @@ const Profile = () => {
     console.log("🔍 Auth User from Redux:", authUser);
     console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
     
-    // On mount, load profile but don't override persisted data
     loadProfile(false);
   }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
-    // On refresh, force API update
     loadProfile(true);
   };
 
-  // Handle logout with proper cleanup
-  const handleLogout = () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Logout",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // Clear all storage
-              await clearAllStorage();
-              
-              // Dispatch logout action
-              dispatch(logout());
-              
-              console.log("✅ Logout successful");
-              
-              // Navigate to login
-              router.replace("/auth/login");
-              
-            } catch (error) {
-              console.error("❌ Logout error:", error);
-              
-              // Force logout even if cleanup fails
-              dispatch(logout());
-              router.replace("/auth/login");
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  // Handle profile update with all field variations
   const handleUpdateProfile = async () => {
     const trimmedForm = {
       first_name: editForm.first_name.trim(),
@@ -290,6 +318,8 @@ const Profile = () => {
       location: editForm.location.trim(),
       country: editForm.country.trim(),
       bio: editForm.bio.trim(),
+      role: editForm.role,
+      skills: editForm.skills,
     };
 
     if (!trimmedForm.first_name) {
@@ -311,48 +341,40 @@ const Profile = () => {
     try {
       console.log("📤 Sending profile update:", trimmedForm);
       
-      const response = await updateProfileData(trimmedForm);
+      const userId = (user && typeof user.id === "string") ? user.id : undefined;
+      const response = userId ? await updateProfileById(userId, trimmedForm) : { success: false, error: "No user id" };
       
-      console.log("📥 Update response:", response.data);
-      
-      if (response.data?.type === "success") {
-        // Create complete user object with ALL field name variations
+      if (response.success) {
         const fullName = `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
         
         const updatedUser = { 
           ...user,
           ...trimmedForm,
-          // Explicitly set all name variations
           first_name: trimmedForm.first_name,
           last_name: trimmedForm.last_name,
           user_name: fullName,
           name: fullName,
           username: fullName,
-          // Explicitly set all email variations
           email: trimmedForm.email,
           user_email: trimmedForm.email,
           userEmail: trimmedForm.email,
-          // Other fields
           phone: trimmedForm.phone,
           bio: trimmedForm.bio,
           location: trimmedForm.location,
           country: trimmedForm.country,
-          // Add timestamp to track when this was updated
+          role: trimmedForm.role,
+          skills: trimmedForm.skills,
           _lastUpdated: new Date().toISOString(),
         };
         
         console.log("✅ Updated user object:", updatedUser);
         
-        // CRITICAL: Update in correct order
-        // 1. Update Redux FIRST (this persists via redux-persist)
         dispatch(setUser(updatedUser));
         console.log("✅ Redux updated");
         
-        // 2. Save backup to AsyncStorage
         await saveProfileBackup(updatedUser);
         console.log("✅ Backup saved");
         
-        // 3. Update local state LAST (for immediate UI update)
         setUserProfile(updatedUser);
         console.log("✅ Local state updated");
         
@@ -361,13 +383,12 @@ const Profile = () => {
             text: "OK",
             onPress: () => {
               setEditModalVisible(false);
-              // Don't reload from API immediately - give server time to update
               console.log("✅ Profile update complete - NOT reloading from API to prevent overwrite");
             }
           }
         ]);
       } else {
-        throw new Error(response.data?.message || "Update failed");
+        throw new Error(response.error || "Update failed");
       }
     } catch (error: any) {
       console.error("❌ Update error:", error);
@@ -382,7 +403,68 @@ const Profile = () => {
     }
   };
 
-  // Handle password change
+  const handleToggleAccountStatus = async () => {
+    const newStatus = !isAccountDeactivated;
+    const action = newStatus ? "deactivate" : "activate";
+    
+    Alert.alert(
+      `${action.charAt(0).toUpperCase() + action.slice(1)} Account`,
+      `Are you sure you want to ${action} your account? ${newStatus ? "You won't be able to access most features." : "Your account will be fully restored."}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: action.charAt(0).toUpperCase() + action.slice(1),
+          style: newStatus ? "destructive" : "default",
+          onPress: async () => {
+            if (user?.id) {
+              setUpdating(true);
+              const res = await updateProfileById(user.id, { deactive_account: newStatus });
+              setUpdating(false);
+              
+              if (res.success) {
+                const updatedUser = { ...user, deactive_account: newStatus };
+                setUserProfile(updatedUser);
+                dispatch(setUser(updatedUser));
+                await saveProfileBackup(updatedUser);
+                Alert.alert("Success", `Account ${action}d successfully!`);
+              } else {
+                Alert.alert("Error", res.error || `Failed to ${action} account`);
+              }
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleAddSkill = () => {
+    const trimmedSkill = newSkill.trim();
+    if (!trimmedSkill) {
+      Alert.alert("Error", "Please enter a skill");
+      return;
+    }
+    
+    if (editForm.skills.includes(trimmedSkill)) {
+      Alert.alert("Error", "This skill already exists");
+      return;
+    }
+    
+    if (editForm.skills.length >= 10) {
+      Alert.alert("Error", "Maximum 10 skills allowed");
+      return;
+    }
+    
+    setEditForm({ ...editForm, skills: [...editForm.skills, trimmedSkill] });
+    setNewSkill("");
+  };
+
+  const handleRemoveSkill = (skillToRemove: string) => {
+    setEditForm({
+      ...editForm,
+      skills: editForm.skills.filter(skill => skill !== skillToRemove)
+    });
+  };
+
   const handleChangePassword = async () => {
     if (!settingsForm.currentPassword || !settingsForm.newPassword) {
       Alert.alert("Error", "Please fill all password fields");
@@ -401,49 +483,31 @@ const Profile = () => {
 
     setUpdating(true);
     try {
-      console.log("🔐 Attempting password change...");
-      
-      const response = await updatePassword({
-        old_password: settingsForm.currentPassword,
-        new_password: settingsForm.newPassword,
-        confirm_password: settingsForm.confirmPassword,
-      });
-
-      console.log("📥 Password change response:", response.data);
-
-      if (response.data?.type === "success" || response.data?.status === "success") {
-        Alert.alert(
-          "Success", 
-          "Password changed successfully. Please login again with your new password.",
-          [
-            {
-              text: "OK",
-              onPress: async () => {
-                setSettingsModalVisible(false);
-                await clearAllStorage();
-                dispatch(logout());
-                router.replace("/auth/login");
-              }
-            }
-          ]
-        );
-        
-        setSettingsForm({
-          ...settingsForm,
-          currentPassword: "",
-          newPassword: "",
-          confirmPassword: "",
-        });
-      }
+      const { error } = await supabase.auth.updateUser({ password: settingsForm.newPassword });
+      if (error) throw error;
+      Alert.alert("Success", "Password changed successfully. Please login again.");
+      setSettingsModalVisible(false);
+      await clearAllStorage();
+      dispatch(logout());
+      router.replace("/auth/login");
     } catch (error: any) {
-      console.error("❌ Password change error:", error);
-      
-      const errorMessage = error?.response?.data?.message_desc || 
-                          error?.response?.data?.message || 
-                          "Failed to change password. Please check your current password.";
-      Alert.alert("Error", errorMessage);
+      const msg = error?.message || "Failed to change password.";
+      Alert.alert("Error", msg);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setUpdating(true);
+    const result = await logoutUser();
+    setUpdating(false);
+    if (result.success) {
+      await clearAllStorage();
+      dispatch(logout());
+      router.replace("/auth/login");
+    } else {
+      Alert.alert("Error", result.error || "Failed to log out");
     }
   };
 
@@ -457,22 +521,27 @@ const Profile = () => {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header Section */}
-      <View style={styles.header}>
+    <View style={styles.container}>
+      {/* Fixed Header */}
+      <Animated.View 
+        style={[
+          styles.fixedHeader,
+          {
+            opacity: scrollY.interpolate({
+              inputRange: [0, 100],
+              outputRange: [1, 0.95],
+              extrapolate: 'clamp',
+            }),
+          }
+        ]}
+      >
         <View style={styles.avatarContainer}>
           <Image
             source={{ uri: user?.avatar || "https://via.placeholder.com/120" }}
             style={styles.avatar}
           />
-          <TouchableOpacity style={styles.editAvatarButton}>
-            <Ionicons name="camera" size={20} color="#fff" />
+          <TouchableOpacity style={styles.editAvatarButton} onPress={handlePickAvatar} disabled={avatarUploading}>
+            {avatarUploading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="camera" size={20} color="#fff" />}
           </TouchableOpacity>
         </View>
 
@@ -485,26 +554,47 @@ const Profile = () => {
           </View>
         ) : null}
 
+        {isAccountDeactivated && (
+          <View style={styles.deactivatedBadge}>
+            <Ionicons name="warning" size={14} color="#DC3545" />
+            <Text style={styles.deactivatedText}>Account Deactivated</Text>
+          </View>
+        )}
+
         <View style={styles.userIdContainer}>
           <Ionicons name="id-card-outline" size={14} color="#999" />
           <Text style={styles.userId}>ID: {userId}</Text>
         </View>
-      </View>
+      </Animated.View>
 
+      {/* Scrollable Content */}
+      <Animated.ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollContentContainer}
+        showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
       {/* Stats Section */}
-      {(user?.rating || user?.completedProjects !== undefined) && (
+      {(user?.rating !== undefined || (user?.completed_projects !== undefined || user?.completedProjects !== undefined)) && (
         <View style={styles.statsContainer}>
-          {user?.rating && (
+          {user?.rating !== undefined && (
             <View style={styles.statItem}>
               <Ionicons name="star" size={24} color="#FFD700" />
               <Text style={styles.statValue}>{user.rating.toFixed(1)}</Text>
               <Text style={styles.statLabel}>Rating</Text>
             </View>
           )}
-          {user?.completedProjects !== undefined && (
+          {(user?.completed_projects !== undefined || user?.completedProjects !== undefined) && (
             <View style={styles.statItem}>
               <Ionicons name="checkmark-circle" size={24} color="#28a745" />
-              <Text style={styles.statValue}>{user.completedProjects}</Text>
+              <Text style={styles.statValue}>{user.completed_projects || user.completedProjects}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
           )}
@@ -559,25 +649,25 @@ const Profile = () => {
           </View>
         )}
 
-        {user?.is_verified && (
+        {user?.is_verified !== undefined && (
           <View style={styles.infoRow}>
             <Ionicons 
-              name={user.is_verified === "yes" ? "checkmark-circle" : "close-circle"} 
+              name={user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "checkmark-circle" : "close-circle"} 
               size={18} 
-              color={user.is_verified === "yes" ? "#28a745" : "#666"} 
+              color={user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "#28a745" : "#666"} 
             />
             <Text style={styles.infoLabel}>Verified:</Text>
-            <Text style={[styles.infoValue, { color: user.is_verified === "yes" ? "#28a745" : "#666" }]}>
-              {user.is_verified === "yes" ? "Yes" : "No"}
+            <Text style={[styles.infoValue, { color: user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "#28a745" : "#666" }]}>
+              {user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "Yes" : "No"}
             </Text>
           </View>
         )}
 
-        {user?.memberSince && (
+        {(user?.memberSince || user?.member_since) && (
           <View style={styles.infoRow}>
             <Ionicons name="calendar-outline" size={18} color="#666" />
             <Text style={styles.infoLabel}>Member Since:</Text>
-            <Text style={styles.infoValue}>{user.memberSince}</Text>
+            <Text style={styles.infoValue}>{user.memberSince || user.member_since}</Text>
           </View>
         )}
       </View>
@@ -617,6 +707,8 @@ const Profile = () => {
           <Text style={styles.secondaryButtonText}>Settings</Text>
         </TouchableOpacity>
 
+        
+
         {/* Sync Button - Pull fresh data from server */}
         <TouchableOpacity
           style={styles.syncButton}
@@ -641,13 +733,15 @@ const Profile = () => {
           <Text style={styles.syncButtonText}>Sync from Server</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.outlineButton}
           onPress={() => router.push("/(tabs)/home")}
         >
           <Ionicons name="home-outline" size={20} color="#666" />
           <Text style={styles.outlineButtonText}>Back to Home</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
+
+        
 
         <TouchableOpacity
           style={styles.logoutButton}
@@ -657,6 +751,22 @@ const Profile = () => {
           <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Deactivate/Activate Account Button */}
+      <TouchableOpacity
+          style={isAccountDeactivated ? styles.activateButton : styles.deactivateButton}
+          onPress={handleToggleAccountStatus}
+          disabled={updating}
+        >
+          <Ionicons 
+            name={isAccountDeactivated ? "checkmark-circle-outline" : "close-circle-outline"} 
+            size={20} 
+            color={isAccountDeactivated ? "#28a745" : "#DC3545"} 
+          />
+          <Text style={isAccountDeactivated ? styles.activateButtonText : styles.deactivateButtonText}>
+            {isAccountDeactivated ? "Activate Account" : "Deactivate Account"}
+          </Text>
+        </TouchableOpacity>
 
       {/* Edit Profile Modal */}
       <Modal
@@ -753,6 +863,75 @@ const Profile = () => {
                 textAlignVertical="top"
                 editable={!updating}
               />
+
+              {/* Skills Section */}
+              <Text style={styles.inputLabel}>Skills</Text>
+              <View style={styles.skillsInputContainer}>
+                <TextInput
+                  style={styles.skillInput}
+                  placeholder="Add a skill (e.g., Plumbing, Carpentry)"
+                  placeholderTextColor="#999"
+                  value={newSkill}
+                  onChangeText={setNewSkill}
+                  onSubmitEditing={handleAddSkill}
+                  returnKeyType="done"
+                  editable={!updating}
+                />
+                <TouchableOpacity 
+                  style={styles.addSkillButton}
+                  onPress={handleAddSkill}
+                  disabled={updating || !newSkill.trim()}
+                >
+                  <Ionicons name="add-circle" size={24} color={newSkill.trim() ? primaryColor : "#ccc"} />
+                </TouchableOpacity>
+              </View>
+              
+              {editForm.skills.length > 0 && (
+                <View style={styles.skillsContainer}>
+                  {editForm.skills.map((skill, index) => (
+                    <View key={index} style={styles.skillChipEditable}>
+                      <Text style={styles.skillText}>{skill}</Text>
+                      <TouchableOpacity 
+                        onPress={() => handleRemoveSkill(skill)}
+                        disabled={updating}
+                        style={styles.removeSkillButton}
+                      >
+                        <Ionicons name="close-circle" size={18} color={primaryColor} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Role switch logic inside Edit Profile Modal */}
+              <Text style={styles.inputLabel}>Account Type</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ marginRight: 12 }}>User</Text>
+                <Switch
+                  value={(editForm.role || user?.role) === "artisan"}
+                  onValueChange={async (value) => {
+                    const newRole = value ? "artisan" : "user";
+                    setEditForm({ ...editForm, role: newRole });
+                    // Immediately update in database
+                    if (user?.id) {
+                      setUpdating(true);
+                      const res = await updateProfileById(user.id, { role: newRole });
+                      setUpdating(false);
+                      if (res.success) {
+                        setUserProfile((prev) => prev ? { ...prev, role: newRole } : prev);
+                        dispatch(setUser({ ...user, role: newRole }));
+                        await saveProfileBackup({ ...user, role: newRole });
+                      } else {
+                        Alert.alert("Error", res.error || "Failed to update role");
+                      }
+                    }
+                  }}
+                  disabled={updating}
+                  trackColor={{ false: '#ddd', true: primaryColor }}
+                  thumbColor={primaryColor}
+                />
+                <Text style={{ marginLeft: 12 }}>Artisan</Text>
+              </View>
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
@@ -898,7 +1077,8 @@ const Profile = () => {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+      </Animated.ScrollView>
+    </View>
   );
 };
 
@@ -909,8 +1089,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: backgroundColor,
   },
-  contentContainer: {
+  fixedHeader: {
+    backgroundColor: "#fff",
+    paddingTop: 40,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e9ecef",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 10,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  scrollContentContainer: {
     paddingBottom: 30,
+    // marginBottom: 40,
   },
   loadingContainer: {
     flex: 1,
@@ -922,14 +1121,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: "#666",
-  },
-  header: {
-    backgroundColor: backgroundColor,
-    paddingVertical: 30,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e9ecef",
   },
   avatarContainer: {
     position: "relative",
@@ -998,6 +1189,23 @@ const styles = StyleSheet.create({
     color: "#999",
     marginLeft: 6,
     fontFamily: "monospace",
+  },
+  deactivatedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF5F5",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#FFDDDD",
+    gap: 4,
+  },
+  deactivatedText: {
+    color: "#DC3545",
+    fontSize: 13,
+    fontWeight: "600",
   },
   statsContainer: {
     flexDirection: "row",
@@ -1073,10 +1281,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#FFCCBB",
   },
+  skillChipEditable: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFE5DD",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FFCCBB",
+    gap: 6,
+  },
   skillText: {
     color: primaryColor,
     fontSize: 13,
     fontWeight: "500",
+  },
+  removeSkillButton: {
+    marginLeft: 2,
+  },
+  skillsInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  skillInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: "#1A1A1A",
+    backgroundColor: "#F4F4FB",
+  },
+  addSkillButton: {
+    padding: 4,
   },
   actionsContainer: {
     paddingHorizontal: 20,
@@ -1147,6 +1389,56 @@ const styles = StyleSheet.create({
   },
   logoutButtonText: {
     color: "#DC3545",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  syncButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: secondaryColor,
+    padding: 14,
+    borderRadius: 12,
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  syncButtonText: {
+    color: primaryColor,
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  deactivateButton: {
+    flexDirection: "row",
+    backgroundColor: "#FFF5F5",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#FFDDDD",
+    marginTop: 8,
+    marginBottom: 70,
+  },
+  deactivateButtonText: {
+    color: "#DC3545",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  activateButton: {
+    flexDirection: "row",
+    backgroundColor: "#F0FFF4",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#C6F6D5",
+    marginTop: 8,
+  },
+  activateButtonText: {
+    color: "#28a745",
     fontWeight: "600",
     fontSize: 16,
   },

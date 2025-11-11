@@ -2,10 +2,11 @@ import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import {
   loginUser,
   registerUser,
-//   uploadProfilePhoto,
-//   updateProfileInfo,
+  // uploadProfilePhoto,
+  // updateProfileInfo,
   switchRole,
 } from "@/api/api";
+
 
 // ✅ Define interfaces for type safety
 interface User {

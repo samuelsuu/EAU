@@ -1,34 +1,34 @@
 // app/(auth)/Register.tsx
-import React, { useState, useRef, useEffect } from "react";
+import AlertComponent from "@/components/base/AlertComponent";
+import Button from "@/components/base/Button";
+import CustomTextInput from "@/components/base/TextInput";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Animated,
   Dimensions,
-  StyleSheet,
   Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import { useDispatch } from "react-redux";
-import { Ionicons } from "@expo/vector-icons";
-import CustomTextInput from "@/components/base/TextInput";
-import Button from "@/components/base/Button";
-import AlertComponent from "@/components/base/AlertComponent";
-import { registerUser } from "@/api/api";
-import { setToken, setUser } from "@/redux/slices/authSlice";
+// import { registerUser } from "@/api/api";
+// import { setToken, setUser } from "@/redux/slices/authSlice";
 import {
+  backgroundColor,
+  fontColor,
   primaryColor,
   secondaryColor,
-  backgroundColor,
-  whiteColor,
-  fontColor,
-  highlightColor,
+  whiteColor
 } from "@/constants/GlobalConstants";
+import { registerWithSupabase } from "@/services/register";
 
 const Register: React.FC = () => {
   const { width: windowWidth } = Dimensions.get("window");
@@ -42,7 +42,7 @@ const Register: React.FC = () => {
     user_name: "",
     email: "",
     password: "",
-    role: "freelancers" as "freelancers" | "employers",
+    role: "user" as "user" | "artisan",
     agree_terms: false,
   });
 
@@ -53,6 +53,7 @@ const Register: React.FC = () => {
     email?: string;
     password?: string;
     agree_terms?: string;
+    role?: string;
   }>({});
 
   const [touched, setTouched] = useState<{
@@ -142,122 +143,37 @@ const Register: React.FC = () => {
   // ---------------- Handle Register ----------------
   const handleRegister = async () => {
     if (!validateInputs()) return;
-
+  
     setLoading(true);
-    try {
-      const payload: any = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        type: form.role,
-        agree_terms: form.agree_terms ? "true" : "false",
-      };
-
-      if (form.user_name.trim()) {
-        payload.user_name = form.user_name.trim();
-      }
-
-      console.log("📤 Attempting registration with:", {
-        email: payload.email,
-        type: payload.type,
-        has_username: !!payload.user_name,
-      });
-
-      const response = await registerUser(payload);
-
-      console.log("📥 Registration response:", response);
-
-      const data = response?.data;
-      const token = data?.token || data?.data?.token;
-      const user = data?.user || data?.data?.user;
-      const type = data?.type;
-      const message = data?.message || data?.message_desc;
-
-      const isSuccess =
-        type === "success" ||
-        response?.status === 200 ||
-        (token && user) ||
-        (message && message.toLowerCase().includes("success"));
-
-      if (isSuccess) {
-        console.log("✅ Registration successful!");
-
-        // Check if auto-login is available (token and user provided)
-        if (token && user) {
-          // Auto-login scenario
-          dispatch(setToken(token));
-          dispatch(setUser(user));
-          console.log("✅ Auto-login successful");
-
-          setAlert({
-            visible: true,
-            type: "success",
-            message: data?.message || "Account Created Successfully!",
-            message_desc:
-              data?.message_desc || "Welcome! Your account has been created and you're now logged in.",
-            requiresVerification: false,
-          });
-        } else {
-          // Email verification required scenario
-          setAlert({
-            visible: true,
-            type: "success",
-            message: "Account Created Successfully! 🎉",
-            message_desc:
-              "Please check your email inbox and verify your email address before logging in. We've sent you a verification link.",
-            requiresVerification: true,
-          });
-        }
-
-        // Clear form
-        setForm({
-          first_name: "",
-          last_name: "",
-          user_name: "",
-          email: "",
-          password: "",
-          role: "freelancers",
-          agree_terms: false,
-        });
-      } else {
-        console.error("❌ Registration failed");
-        setAlert({
-          visible: true,
-          type: "error",
-          message: "Registration Failed",
-          message_desc: message || "Unable to create account. Please try again.",
-          requiresVerification: false,
-        });
-      }
-    } catch (error: any) {
-      console.error("❌ Registration error:", error);
-      console.error("❌ Error response:", error?.response?.data);
-
-      const errorData = error?.response?.data;
-      const errorMessage =
-        errorData?.message_desc ||
-        errorData?.message ||
-        error?.message ||
-        "User already exists. Please try a different email or login.";
-
+  
+    const result = await registerWithSupabase(form);
+  
+    if (result.error) {
       setAlert({
         visible: true,
         type: "error",
         message: "Registration Failed",
-        message_desc: errorMessage,
+        message_desc: result.error,
         requiresVerification: false,
       });
-    } finally {
-      setLoading(false);
+    } else {
+      setAlert({
+        visible: true,
+        type: "success",
+        message: "Account Created Successfully!",
+        message_desc: "Verify your email to continue.",
+        requiresVerification: true,
+      });
     }
+  
+    setLoading(false);
   };
-
+  
   // ---------------- Alert Handler ----------------
   const handleAlertPress = () => {
     const wasSuccess = alert.type === "success";
     const needsVerification = alert.requiresVerification;
-    
+
     setAlert((prev) => ({ ...prev, visible: false }));
 
     if (wasSuccess) {
@@ -300,14 +216,14 @@ const Register: React.FC = () => {
 
             {/* Logo */}
             <View style={styles.logoContainer}>
-              <Image 
-                source={require('@/assets/images/splash-icon.png')} 
-                style={{ 
-                  marginTop: 10, 
-                  width: windowWidth * 0.5, 
-                  height: 60, 
-                  resizeMode: 'contain' 
-                }} 
+              <Image
+                source={require("@/assets/images/splash-icon.png")}
+                style={{
+                  marginTop: 10,
+                  width: windowWidth * 0.5,
+                  height: 60,
+                  resizeMode: "contain",
+                }}
               />
             </View>
 
@@ -326,11 +242,13 @@ const Register: React.FC = () => {
                 onChangeText={(text) => handleInputChange("first_name", text)}
                 placeholder="First Name"
                 borderColor={
-                  touched.first_name && errors.first_name ? "#FF6167" : undefined
+                  touched.first_name && errors.first_name
+                    ? "#FF6167"
+                    : undefined
                 }
                 type="text"
                 required={false}
-                error={touched.first_name && errors.first_name}
+                error={!!(touched.first_name && errors.first_name)}
                 editable={!loading}
               />
             </View>
@@ -346,7 +264,7 @@ const Register: React.FC = () => {
                 }
                 type="text"
                 required={false}
-                error={touched.last_name && errors.last_name}
+                error={!!(touched.last_name && errors.last_name)}
                 editable={!loading}
               />
             </View>
@@ -362,7 +280,7 @@ const Register: React.FC = () => {
                 }
                 type="text"
                 required={false}
-                error={touched.user_name && errors.user_name}
+                error={!!(touched.user_name && errors.user_name)}
                 editable={!loading}
               />
             </View>
@@ -378,7 +296,7 @@ const Register: React.FC = () => {
                 }
                 type="text"
                 required={false}
-                error={touched.email && errors.email}
+                error={!!(touched.email && errors.email)}
                 editable={!loading}
               />
             </View>
@@ -394,7 +312,7 @@ const Register: React.FC = () => {
                   touched.password && errors.password ? "#FF6167" : undefined
                 }
                 required={false}
-                error={touched.password && errors.password}
+                error={!!(touched.password && errors.password)}
                 editable={!loading}
               />
             </View>
@@ -406,22 +324,22 @@ const Register: React.FC = () => {
                 <TouchableOpacity
                   style={[
                     styles.roleButton,
-                    form.role === "employers" && styles.activeRole,
+                    form.role === "user" && styles.activeRole,
                   ]}
-                  onPress={() => handleInputChange("role", "employers")}
+                  onPress={() => handleInputChange("role", "user")}
                   disabled={loading}
                   activeOpacity={0.7}
                 >
                   <Ionicons
                     name="briefcase"
                     size={20}
-                    color={form.role === "employers" ? whiteColor : secondaryColor}
+                    color={form.role === "user" ? whiteColor : secondaryColor}
                     style={{ marginRight: 8 }}
                   />
                   <Text
                     style={[
                       styles.roleText,
-                      form.role === "employers" && styles.activeRoleText,
+                      form.role === "artisan" && styles.activeRoleText,
                     ]}
                   >
                     Hire Talent
@@ -431,22 +349,22 @@ const Register: React.FC = () => {
                 <TouchableOpacity
                   style={[
                     styles.roleButton,
-                    form.role === "freelancers" && styles.activeRole,
+                    form.role === "artisan" && styles.activeRole,
                   ]}
-                  onPress={() => handleInputChange("role", "freelancers")}
+                  onPress={() => handleInputChange("role", "artisan")}
                   disabled={loading}
                   activeOpacity={0.7}
                 >
                   <Ionicons
                     name="code-working"
                     size={20}
-                    color={form.role === "freelancers" ? whiteColor : primaryColor}
+                    color={form.role === "artisan" ? whiteColor : primaryColor}
                     style={{ marginRight: 8 }}
                   />
                   <Text
                     style={[
                       styles.roleText,
-                      form.role === "freelancers" && styles.activeRoleText,
+                      form.role === "artisan" && styles.activeRoleText,
                     ]}
                   >
                     Find Work
