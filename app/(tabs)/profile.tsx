@@ -5,8 +5,16 @@ import {
 } from "@/constants/GlobalConstants";
 import { supabase } from "@/lib/supabase";
 import { logout, setUser } from "@/redux/slices/authSlice";
-import { getProfileById, logoutUser, updateProfileById } from "@/services/login";
-import { clearAllStorage, getProfileBackup, saveProfileBackup } from "@/utils/storageUtils";
+import {
+  getProfileById,
+  logoutUser,
+  updateProfileById,
+} from "@/services/login";
+import {
+  clearAllStorage,
+  getProfileBackup,
+  saveProfileBackup,
+} from "@/utils/storageUtils";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -72,6 +80,14 @@ interface EditForm {
   country: string;
   role: "user" | "artisan";
   skills: string[];
+  // Rating fields
+  rating?: number;
+  average_rating?: number;
+  rating_count?: number;
+  reviews?: number;
+   // View count (for artisans)
+   views?: number;
+  
 }
 
 const Profile = () => {
@@ -82,7 +98,7 @@ const Profile = () => {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [updating, setUpdating] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
-  
+
   const router = useRouter();
   const dispatch = useDispatch();
   const authUser = useSelector((state: any) => state.auth.user);
@@ -114,9 +130,13 @@ const Profile = () => {
 
   const handlePickAvatar = async () => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission denied", "Permission to access media library is required.");
+        Alert.alert(
+          "Permission denied",
+          "Permission to access media library is required."
+        );
         return;
       }
 
@@ -133,7 +153,10 @@ const Profile = () => {
       const mime = asset.mimeType?.toLowerCase();
       const fileName = asset.fileName?.toLowerCase();
       const isPng = mime?.includes("png") || fileName?.endsWith(".png");
-      const isJpeg = mime?.includes("jpeg") || mime?.includes("jpg") || fileName?.match(/\.jpe?g$/);
+      const isJpeg =
+        mime?.includes("jpeg") ||
+        mime?.includes("jpg") ||
+        fileName?.match(/\.jpe?g$/);
 
       if (mime && !(isPng || isJpeg)) {
         Alert.alert("Unsupported format", "Please select a JPG or PNG image.");
@@ -145,13 +168,22 @@ const Profile = () => {
       const manip = await ImageManipulator.manipulateAsync(
         asset.uri,
         [{ resize: { width: 300 } }],
-        { compress: 0.7, format: isPng ? ImageManipulator.SaveFormat.PNG : ImageManipulator.SaveFormat.JPEG }
+        {
+          compress: 0.7,
+          format: isPng
+            ? ImageManipulator.SaveFormat.PNG
+            : ImageManipulator.SaveFormat.JPEG,
+        }
       );
 
       if (user?.id) {
-        const updateRes = await updateProfileById(user.id, { avatar: manip.uri });
+        const updateRes = await updateProfileById(user.id, {
+          avatar: manip.uri,
+        });
         if (updateRes.success) {
-          setUserProfile((prev) => (prev ? { ...prev, avatar: manip.uri } : prev));
+          setUserProfile((prev) =>
+            prev ? { ...prev, avatar: manip.uri } : prev
+          );
           dispatch(setUser({ ...user, avatar: manip.uri }));
           await saveProfileBackup({ ...user, avatar: manip.uri });
         } else {
@@ -167,13 +199,15 @@ const Profile = () => {
 
   const displayName = React.useMemo(() => {
     const profileName = user?.name || user?.user_name || user?.username;
-    const authName = authUser?.user_name || authUser?.name || authUser?.username;
+    const authName =
+      authUser?.user_name || authUser?.name || authUser?.username;
     return profileName || authName || "User";
   }, [user, authUser]);
 
   const displayEmail = React.useMemo(() => {
     const profileEmail = user?.email || user?.user_email;
-    const authEmail = authUser?.email || authUser?.user_email || authUser?.userEmail;
+    const authEmail =
+      authUser?.email || authUser?.user_email || authUser?.userEmail;
     return profileEmail || authEmail || "Email not provided";
   }, [user, authUser]);
 
@@ -191,7 +225,9 @@ const Profile = () => {
 
   const isAccountDeactivated = React.useMemo(() => {
     const deactiveValue = user?.deactive_account;
-    return deactiveValue === true || deactiveValue === 1 || deactiveValue === "1";
+    return (
+      deactiveValue === true || deactiveValue === 1 || deactiveValue === "1"
+    );
   }, [user]);
 
   const loadProfile = async (forceApiUpdate = false) => {
@@ -199,12 +235,13 @@ const Profile = () => {
       const res = await getProfileById(authUser?.id);
       if (!res.success) throw new Error(res.error);
       const profileData = res.data;
-      
+
       console.log("📋 Profile API Response:", profileData);
-      
+
       const persistedData = authUser;
-      const hasPersistedData = persistedData && Object.keys(persistedData).length > 0;
-      
+      const hasPersistedData =
+        persistedData && Object.keys(persistedData).length > 0;
+
       let mergedData;
       if (hasPersistedData && !forceApiUpdate) {
         console.log("🔒 Using persisted data (has priority over API)");
@@ -219,26 +256,27 @@ const Profile = () => {
           ...profileData,
         };
       }
-      
+
       console.log("🔄 Merged profile data:", mergedData);
-      
+
       const currentDataStr = JSON.stringify(user);
       const newDataStr = JSON.stringify(mergedData);
-      
+
       if (currentDataStr !== newDataStr || forceApiUpdate) {
         setUserProfile(mergedData);
-        
+
         if (forceApiUpdate || !hasPersistedData) {
           dispatch(setUser(mergedData));
           await saveProfileBackup(mergedData);
         }
       }
-      
+
       const fullName = mergedData?.user_name || mergedData?.name || "";
       const nameParts = fullName.trim().split(" ");
       const firstName = mergedData?.first_name || nameParts[0] || "";
-      const lastName = mergedData?.last_name || nameParts.slice(1).join(" ") || "";
-      
+      const lastName =
+        mergedData?.last_name || nameParts.slice(1).join(" ") || "";
+
       setEditForm({
         first_name: firstName,
         last_name: lastName,
@@ -247,14 +285,14 @@ const Profile = () => {
         bio: mergedData?.bio || "",
         location: mergedData?.location || "",
         country: mergedData?.country || "",
-        role: mergedData?.role || 'user',
+        role: mergedData?.role || "user",
         skills: mergedData?.skills || [],
       });
     } catch (error: any) {
       console.log("❌ Profile API error:", error);
-      
+
       let fallbackData = null;
-      
+
       if (authUser && Object.keys(authUser).length > 0) {
         console.log("📋 Fallback 1: Using Redux persisted data");
         fallbackData = authUser;
@@ -262,26 +300,27 @@ const Profile = () => {
         console.log("📦 Fallback 2: Checking AsyncStorage backup");
         fallbackData = await getProfileBackup();
       }
-      
+
       if (fallbackData) {
         setUserProfile(fallbackData);
-        
+
         if (!authUser || Object.keys(authUser).length === 0) {
           dispatch(setUser(fallbackData));
         }
-        
+
         const fullName = fallbackData?.user_name || fallbackData?.name || "";
         const nameParts = fullName.trim().split(" ");
-        
+
         setEditForm({
           first_name: fallbackData?.first_name || nameParts[0] || "",
-          last_name: fallbackData?.last_name || nameParts.slice(1).join(" ") || "",
+          last_name:
+            fallbackData?.last_name || nameParts.slice(1).join(" ") || "",
           email: fallbackData?.email || fallbackData?.user_email || "",
           phone: fallbackData?.phone || "",
           bio: fallbackData?.bio || "",
           location: fallbackData?.location || "",
           country: fallbackData?.country || "",
-          role: fallbackData?.role || 'user',
+          role: fallbackData?.role || "user",
           skills: fallbackData?.skills || [],
         });
       } else {
@@ -300,7 +339,7 @@ const Profile = () => {
   useEffect(() => {
     console.log("🔍 Auth User from Redux:", authUser);
     console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
-    
+
     loadProfile(false);
   }, []);
 
@@ -340,14 +379,17 @@ const Profile = () => {
     setUpdating(true);
     try {
       console.log("📤 Sending profile update:", trimmedForm);
-      
-      const userId = (user && typeof user.id === "string") ? user.id : undefined;
-      const response = userId ? await updateProfileById(userId, trimmedForm) : { success: false, error: "No user id" };
-      
+
+      const userId = user && typeof user.id === "string" ? user.id : undefined;
+      const response = userId
+        ? await updateProfileById(userId, trimmedForm)
+        : { success: false, error: "No user id" };
+
       if (response.success) {
-        const fullName = `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
-        
-        const updatedUser = { 
+        const fullName =
+          `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
+
+        const updatedUser = {
           ...user,
           ...trimmedForm,
           first_name: trimmedForm.first_name,
@@ -366,37 +408,40 @@ const Profile = () => {
           skills: trimmedForm.skills,
           _lastUpdated: new Date().toISOString(),
         };
-        
+
         console.log("✅ Updated user object:", updatedUser);
-        
+
         dispatch(setUser(updatedUser));
         console.log("✅ Redux updated");
-        
+
         await saveProfileBackup(updatedUser);
         console.log("✅ Backup saved");
-        
+
         setUserProfile(updatedUser);
         console.log("✅ Local state updated");
-        
+
         Alert.alert("Success", "Profile updated successfully!", [
           {
             text: "OK",
             onPress: () => {
               setEditModalVisible(false);
-              console.log("✅ Profile update complete - NOT reloading from API to prevent overwrite");
-            }
-          }
+              console.log(
+                "✅ Profile update complete - NOT reloading from API to prevent overwrite"
+              );
+            },
+          },
         ]);
       } else {
         throw new Error(response.error || "Update failed");
       }
     } catch (error: any) {
       console.error("❌ Update error:", error);
-      
-      const errorMessage = error?.response?.data?.message_desc || 
-                          error?.response?.data?.message || 
-                          error?.message ||
-                          "Failed to update profile. Please try again.";
+
+      const errorMessage =
+        error?.response?.data?.message_desc ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update profile. Please try again.";
       Alert.alert("Error", errorMessage);
     } finally {
       setUpdating(false);
@@ -406,10 +451,14 @@ const Profile = () => {
   const handleToggleAccountStatus = async () => {
     const newStatus = !isAccountDeactivated;
     const action = newStatus ? "deactivate" : "activate";
-    
+
     Alert.alert(
       `${action.charAt(0).toUpperCase() + action.slice(1)} Account`,
-      `Are you sure you want to ${action} your account? ${newStatus ? "You won't be able to access most features." : "Your account will be fully restored."}`,
+      `Are you sure you want to ${action} your account? ${
+        newStatus
+          ? "You won't be able to access most features."
+          : "Your account will be fully restored."
+      }`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -418,9 +467,11 @@ const Profile = () => {
           onPress: async () => {
             if (user?.id) {
               setUpdating(true);
-              const res = await updateProfileById(user.id, { deactive_account: newStatus });
+              const res = await updateProfileById(user.id, {
+                deactive_account: newStatus,
+              });
               setUpdating(false);
-              
+
               if (res.success) {
                 const updatedUser = { ...user, deactive_account: newStatus };
                 setUserProfile(updatedUser);
@@ -428,11 +479,14 @@ const Profile = () => {
                 await saveProfileBackup(updatedUser);
                 Alert.alert("Success", `Account ${action}d successfully!`);
               } else {
-                Alert.alert("Error", res.error || `Failed to ${action} account`);
+                Alert.alert(
+                  "Error",
+                  res.error || `Failed to ${action} account`
+                );
               }
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -443,17 +497,17 @@ const Profile = () => {
       Alert.alert("Error", "Please enter a skill");
       return;
     }
-    
+
     if (editForm.skills.includes(trimmedSkill)) {
       Alert.alert("Error", "This skill already exists");
       return;
     }
-    
+
     if (editForm.skills.length >= 10) {
       Alert.alert("Error", "Maximum 10 skills allowed");
       return;
     }
-    
+
     setEditForm({ ...editForm, skills: [...editForm.skills, trimmedSkill] });
     setNewSkill("");
   };
@@ -461,7 +515,7 @@ const Profile = () => {
   const handleRemoveSkill = (skillToRemove: string) => {
     setEditForm({
       ...editForm,
-      skills: editForm.skills.filter(skill => skill !== skillToRemove)
+      skills: editForm.skills.filter((skill) => skill !== skillToRemove),
     });
   };
 
@@ -483,9 +537,14 @@ const Profile = () => {
 
     setUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: settingsForm.newPassword });
+      const { error } = await supabase.auth.updateUser({
+        password: settingsForm.newPassword,
+      });
       if (error) throw error;
-      Alert.alert("Success", "Password changed successfully. Please login again.");
+      Alert.alert(
+        "Success",
+        "Password changed successfully. Please login again."
+      );
       setSettingsModalVisible(false);
       await clearAllStorage();
       dispatch(logout());
@@ -523,16 +582,16 @@ const Profile = () => {
   return (
     <View style={styles.container}>
       {/* Fixed Header */}
-      <Animated.View 
+      <Animated.View
         style={[
           styles.fixedHeader,
           {
             opacity: scrollY.interpolate({
               inputRange: [0, 100],
               outputRange: [1, 0.95],
-              extrapolate: 'clamp',
+              extrapolate: "clamp",
             }),
-          }
+          },
         ]}
       >
         <View style={styles.avatarContainer}>
@@ -540,14 +599,22 @@ const Profile = () => {
             source={{ uri: user?.avatar || "https://via.placeholder.com/120" }}
             style={styles.avatar}
           />
-          <TouchableOpacity style={styles.editAvatarButton} onPress={handlePickAvatar} disabled={avatarUploading}>
-            {avatarUploading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="camera" size={20} color="#fff" />}
+          <TouchableOpacity
+            style={styles.editAvatarButton}
+            onPress={handlePickAvatar}
+            disabled={avatarUploading}
+          >
+            {avatarUploading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="camera" size={20} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
 
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.email}>{displayEmail}</Text>
-        
+
         {user?.role || userType ? (
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{user?.role || userType}</Text>
@@ -581,159 +648,211 @@ const Profile = () => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-      {/* Stats Section */}
-      {(user?.rating !== undefined || (user?.completed_projects !== undefined || user?.completedProjects !== undefined)) && (
+        {/* Stats Section */}
         <View style={styles.statsContainer}>
-          {user?.rating !== undefined && (
+          {/* Rating Display */}
+          {(user?.average_rating !== undefined ||
+            user?.rating !== undefined) && (
             <View style={styles.statItem}>
               <Ionicons name="star" size={24} color="#FFD700" />
-              <Text style={styles.statValue}>{user.rating.toFixed(1)}</Text>
-              <Text style={styles.statLabel}>Rating</Text>
+              <Text style={styles.statValue}>
+                {(user.average_rating || user.rating || 0).toFixed(1)}
+              </Text>
+              <Text style={styles.statLabel}>
+                {user?.rating_count || user?.reviews || 0}{" "}
+                {(user?.rating_count || user?.reviews || 0) === 1
+                  ? "Review"
+                  : "Reviews"}
+              </Text>
             </View>
           )}
-          {(user?.completed_projects !== undefined || user?.completedProjects !== undefined) && (
+          {/* Completed Projects */}
+          {(user?.completed_projects !== undefined ||
+            user?.completedProjects !== undefined) && (
             <View style={styles.statItem}>
               <Ionicons name="checkmark-circle" size={24} color="#28a745" />
-              <Text style={styles.statValue}>{user.completed_projects || user.completedProjects}</Text>
+              <Text style={styles.statValue}>
+                {user.completed_projects || user.completedProjects}
+              </Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
           )}
-        </View>
-      )}
 
-      {/* Bio Section */}
-      {user?.bio && (
+          {/* Profile Views (if artisan) */}
+          {user?.views !== undefined && user?.role === "artisan" && (
+            <View style={styles.statItem}>
+              <Ionicons name="eye" size={24} color="#007AFF" />
+              <Text style={styles.statValue}>{user.views}</Text>
+              <Text style={styles.statLabel}>Views</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Bio Section */}
+        {user?.bio && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="person-outline" size={20} color="#EE4710" />
+              <Text style={styles.sectionTitle}>About</Text>
+            </View>
+            <Text style={styles.bioText}>{user.bio}</Text>
+          </View>
+        )}
+
+        {/* Info Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="person-outline" size={20} color="#EE4710" />
-            <Text style={styles.sectionTitle}>About</Text>
-          </View>
-          <Text style={styles.bioText}>{user.bio}</Text>
-        </View>
-      )}
-
-      {/* Info Section */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="information-circle-outline" size={20} color="#EE4710" />
-          <Text style={styles.sectionTitle}>Information</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="mail-outline" size={18} color="#666" />
-          <Text style={styles.infoLabel}>Email:</Text>
-          <Text style={styles.infoValue}>{displayEmail}</Text>
-        </View>
-
-        {user?.phone && (
-          <View style={styles.infoRow}>
-            <Ionicons name="call-outline" size={18} color="#666" />
-            <Text style={styles.infoLabel}>Phone:</Text>
-            <Text style={styles.infoValue}>{user.phone}</Text>
-          </View>
-        )}
-
-        {user?.location && (
-          <View style={styles.infoRow}>
-            <Ionicons name="location-outline" size={18} color="#666" />
-            <Text style={styles.infoLabel}>Location:</Text>
-            <Text style={styles.infoValue}>{user.location}</Text>
-          </View>
-        )}
-
-        {user?.wallet_amount && (
-          <View style={styles.infoRow}>
-            <Ionicons name="wallet-outline" size={18} color="#666" />
-            <Text style={styles.infoLabel}>Wallet:</Text>
-            <Text style={styles.infoValue}>{user.wallet_amount}</Text>
-          </View>
-        )}
-
-        {user?.is_verified !== undefined && (
-          <View style={styles.infoRow}>
-            <Ionicons 
-              name={user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "checkmark-circle" : "close-circle"} 
-              size={18} 
-              color={user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "#28a745" : "#666"} 
+            <Ionicons
+              name="information-circle-outline"
+              size={20}
+              color="#EE4710"
             />
-            <Text style={styles.infoLabel}>Verified:</Text>
-            <Text style={[styles.infoValue, { color: user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "#28a745" : "#666" }]}>
-              {user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "Yes" : "No"}
-            </Text>
+            <Text style={styles.sectionTitle}>Information</Text>
           </View>
-        )}
 
-        {(user?.memberSince || user?.member_since) && (
           <View style={styles.infoRow}>
-            <Ionicons name="calendar-outline" size={18} color="#666" />
-            <Text style={styles.infoLabel}>Member Since:</Text>
-            <Text style={styles.infoValue}>{user.memberSince || user.member_since}</Text>
+            <Ionicons name="mail-outline" size={18} color="#666" />
+            <Text style={styles.infoLabel}>Email:</Text>
+            <Text style={styles.infoValue}>{displayEmail}</Text>
+          </View>
+
+          {user?.phone && (
+            <View style={styles.infoRow}>
+              <Ionicons name="call-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Phone:</Text>
+              <Text style={styles.infoValue}>{user.phone}</Text>
+            </View>
+          )}
+
+          {user?.location && (
+            <View style={styles.infoRow}>
+              <Ionicons name="location-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Location:</Text>
+              <Text style={styles.infoValue}>{user.location}</Text>
+            </View>
+          )}
+
+          {user?.wallet_amount && (
+            <View style={styles.infoRow}>
+              <Ionicons name="wallet-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Wallet:</Text>
+              <Text style={styles.infoValue}>{user.wallet_amount}</Text>
+            </View>
+          )}
+
+          {user?.is_verified !== undefined && (
+            <View style={styles.infoRow}>
+              <Ionicons
+                name={
+                  user.is_verified === true ||
+                  user.is_verified === "yes" ||
+                  user.is_verified === 1
+                    ? "checkmark-circle"
+                    : "close-circle"
+                }
+                size={18}
+                color={
+                  user.is_verified === true ||
+                  user.is_verified === "yes" ||
+                  user.is_verified === 1
+                    ? "#28a745"
+                    : "#666"
+                }
+              />
+              <Text style={styles.infoLabel}>Verified:</Text>
+              <Text
+                style={[
+                  styles.infoValue,
+                  {
+                    color:
+                      user.is_verified === true ||
+                      user.is_verified === "yes" ||
+                      user.is_verified === 1
+                        ? "#28a745"
+                        : "#666",
+                  },
+                ]}
+              >
+                {user.is_verified === true ||
+                user.is_verified === "yes" ||
+                user.is_verified === 1
+                  ? "Yes"
+                  : "No"}
+              </Text>
+            </View>
+          )}
+
+          {(user?.memberSince || user?.member_since) && (
+            <View style={styles.infoRow}>
+              <Ionicons name="calendar-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Member Since:</Text>
+              <Text style={styles.infoValue}>
+                {user.memberSince || user.member_since}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Skills Section */}
+        {user?.skills && user.skills.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="code-slash-outline" size={20} color="#EE4710" />
+              <Text style={styles.sectionTitle}>Skills</Text>
+            </View>
+            <View style={styles.skillsContainer}>
+              {user.skills.map((skill, index) => (
+                <View key={index} style={styles.skillChip}>
+                  <Text style={styles.skillText}>{skill}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         )}
-      </View>
 
-      {/* Skills Section */}
-      {user?.skills && user.skills.length > 0 && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="code-slash-outline" size={20} color="#EE4710" />
-            <Text style={styles.sectionTitle}>Skills</Text>
-          </View>
-          <View style={styles.skillsContainer}>
-            {user.skills.map((skill, index) => (
-              <View key={index} style={styles.skillChip}>
-                <Text style={styles.skillText}>{skill}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
+        {/* Action Buttons */}
+        <View style={styles.actionsContainer}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setEditModalVisible(true)}
+          >
+            <Ionicons name="create-outline" size={20} color="#fff" />
+            <Text style={styles.buttonText}>Edit Profile</Text>
+          </TouchableOpacity>
 
-      {/* Action Buttons */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => setEditModalVisible(true)}
-        >
-          <Ionicons name="create-outline" size={20} color="#fff" />
-          <Text style={styles.buttonText}>Edit Profile</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setSettingsModalVisible(true)}
+          >
+            <Ionicons name="settings-outline" size={20} color="#EE4710" />
+            <Text style={styles.secondaryButtonText}>Settings</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => setSettingsModalVisible(true)}
-        >
-          <Ionicons name="settings-outline" size={20} color="#EE4710" />
-          <Text style={styles.secondaryButtonText}>Settings</Text>
-        </TouchableOpacity>
+          {/* Sync Button - Pull fresh data from server */}
+          <TouchableOpacity
+            style={styles.syncButton}
+            onPress={() => {
+              Alert.alert(
+                "Sync from Server",
+                "This will fetch your latest profile data from the server and may overwrite local changes. Continue?",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Sync",
+                    onPress: () => {
+                      setRefreshing(true);
+                      loadProfile(true);
+                    },
+                  },
+                ]
+              );
+            }}
+          >
+            <Ionicons name="cloud-download-outline" size={20} color="#007AFF" />
+            <Text style={styles.syncButtonText}>Sync from Server</Text>
+          </TouchableOpacity>
 
-        
-
-        {/* Sync Button - Pull fresh data from server */}
-        <TouchableOpacity
-          style={styles.syncButton}
-          onPress={() => {
-            Alert.alert(
-              "Sync from Server",
-              "This will fetch your latest profile data from the server and may overwrite local changes. Continue?",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Sync",
-                  onPress: () => {
-                    setRefreshing(true);
-                    loadProfile(true);
-                  }
-                }
-              ]
-            );
-          }}
-        >
-          <Ionicons name="cloud-download-outline" size={20} color="#007AFF" />
-          <Text style={styles.syncButtonText}>Sync from Server</Text>
-        </TouchableOpacity>
-
-        {/* <TouchableOpacity
+          {/* <TouchableOpacity
           style={styles.outlineButton}
           onPress={() => router.push("/(tabs)/home")}
         >
@@ -741,342 +860,400 @@ const Profile = () => {
           <Text style={styles.outlineButtonText}>Back to Home</Text>
         </TouchableOpacity> */}
 
-        
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color="#DC3545" />
+            <Text style={styles.logoutButtonText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
 
+        {/* Deactivate/Activate Account Button */}
         <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
-        >
-          <Ionicons name="log-out-outline" size={20} color="#DC3545" />
-          <Text style={styles.logoutButtonText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Deactivate/Activate Account Button */}
-      <TouchableOpacity
-          style={isAccountDeactivated ? styles.activateButton : styles.deactivateButton}
+          style={
+            isAccountDeactivated
+              ? styles.activateButton
+              : styles.deactivateButton
+          }
           onPress={handleToggleAccountStatus}
           disabled={updating}
         >
-          <Ionicons 
-            name={isAccountDeactivated ? "checkmark-circle-outline" : "close-circle-outline"} 
-            size={20} 
-            color={isAccountDeactivated ? "#28a745" : "#DC3545"} 
+          <Ionicons
+            name={
+              isAccountDeactivated
+                ? "checkmark-circle-outline"
+                : "close-circle-outline"
+            }
+            size={20}
+            color={isAccountDeactivated ? "#28a745" : "#DC3545"}
           />
-          <Text style={isAccountDeactivated ? styles.activateButtonText : styles.deactivateButtonText}>
+          <Text
+            style={
+              isAccountDeactivated
+                ? styles.activateButtonText
+                : styles.deactivateButtonText
+            }
+          >
             {isAccountDeactivated ? "Activate Account" : "Deactivate Account"}
           </Text>
         </TouchableOpacity>
 
-      {/* Edit Profile Modal */}
-      <Modal
-        visible={editModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Profile</Text>
-              <TouchableOpacity
-                onPress={() => setEditModalVisible(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
+        {/* Edit Profile Modal */}
+        <Modal
+          visible={editModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setEditModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Profile</Text>
+                <TouchableOpacity
+                  onPress={() => setEditModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.inputLabel}>First Name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your first name"
-                placeholderTextColor="#999"
-                value={editForm.first_name}
-                onChangeText={(text) => setEditForm({ ...editForm, first_name: text })}
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Last Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your last name"
-                placeholderTextColor="#999"
-                value={editForm.last_name}
-                onChangeText={(text) => setEditForm({ ...editForm, last_name: text })}
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Email *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor="#999"
-                value={editForm.email}
-                onChangeText={(text) => setEditForm({ ...editForm, email: text })}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Phone</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your phone number"
-                placeholderTextColor="#999"
-                value={editForm.phone}
-                onChangeText={(text) => setEditForm({ ...editForm, phone: text })}
-                keyboardType="phone-pad"
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Location</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your location"
-                placeholderTextColor="#999"
-                value={editForm.location}
-                onChangeText={(text) => setEditForm({ ...editForm, location: text })}
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Country *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your country"
-                placeholderTextColor="#999"
-                value={editForm.country}
-                onChangeText={(text) => setEditForm({ ...editForm, country: text })}
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Bio</Text>
-              <TextInput
-                style={styles.textArea}
-                placeholder="Tell us about yourself..."
-                placeholderTextColor="#999"
-                multiline
-                numberOfLines={4}
-                value={editForm.bio}
-                onChangeText={(text) => setEditForm({ ...editForm, bio: text })}
-                textAlignVertical="top"
-                editable={!updating}
-              />
-
-              {/* Skills Section */}
-              <Text style={styles.inputLabel}>Skills</Text>
-              <View style={styles.skillsInputContainer}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.inputLabel}>First Name *</Text>
                 <TextInput
-                  style={styles.skillInput}
-                  placeholder="Add a skill (e.g., Plumbing, Carpentry)"
+                  style={styles.input}
+                  placeholder="Enter your first name"
                   placeholderTextColor="#999"
-                  value={newSkill}
-                  onChangeText={setNewSkill}
-                  onSubmitEditing={handleAddSkill}
-                  returnKeyType="done"
+                  value={editForm.first_name}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, first_name: text })
+                  }
                   editable={!updating}
                 />
-                <TouchableOpacity 
-                  style={styles.addSkillButton}
-                  onPress={handleAddSkill}
-                  disabled={updating || !newSkill.trim()}
-                >
-                  <Ionicons name="add-circle" size={24} color={newSkill.trim() ? primaryColor : "#ccc"} />
-                </TouchableOpacity>
-              </View>
-              
-              {editForm.skills.length > 0 && (
-                <View style={styles.skillsContainer}>
-                  {editForm.skills.map((skill, index) => (
-                    <View key={index} style={styles.skillChipEditable}>
-                      <Text style={styles.skillText}>{skill}</Text>
-                      <TouchableOpacity 
-                        onPress={() => handleRemoveSkill(skill)}
-                        disabled={updating}
-                        style={styles.removeSkillButton}
-                      >
-                        <Ionicons name="close-circle" size={18} color={primaryColor} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              )}
 
-              {/* Role switch logic inside Edit Profile Modal */}
-              <Text style={styles.inputLabel}>Account Type</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ marginRight: 12 }}>User</Text>
-                <Switch
-                  value={(editForm.role || user?.role) === "artisan"}
-                  onValueChange={async (value) => {
-                    const newRole = value ? "artisan" : "user";
-                    setEditForm({ ...editForm, role: newRole });
-                    // Immediately update in database
-                    if (user?.id) {
-                      setUpdating(true);
-                      const res = await updateProfileById(user.id, { role: newRole });
-                      setUpdating(false);
-                      if (res.success) {
-                        setUserProfile((prev) => prev ? { ...prev, role: newRole } : prev);
-                        dispatch(setUser({ ...user, role: newRole }));
-                        await saveProfileBackup({ ...user, role: newRole });
-                      } else {
-                        Alert.alert("Error", res.error || "Failed to update role");
-                      }
-                    }
-                  }}
-                  disabled={updating}
-                  trackColor={{ false: '#ddd', true: primaryColor }}
-                  thumbColor={primaryColor}
+                <Text style={styles.inputLabel}>Last Name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your last name"
+                  placeholderTextColor="#999"
+                  value={editForm.last_name}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, last_name: text })
+                  }
+                  editable={!updating}
                 />
-                <Text style={{ marginLeft: 12 }}>Artisan</Text>
+
+                <Text style={styles.inputLabel}>Email *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your email"
+                  placeholderTextColor="#999"
+                  value={editForm.email}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, email: text })
+                  }
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Phone</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your phone number"
+                  placeholderTextColor="#999"
+                  value={editForm.phone}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, phone: text })
+                  }
+                  keyboardType="phone-pad"
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Location</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your location"
+                  placeholderTextColor="#999"
+                  value={editForm.location}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, location: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Country *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your country"
+                  placeholderTextColor="#999"
+                  value={editForm.country}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, country: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Bio</Text>
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Tell us about yourself..."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={4}
+                  value={editForm.bio}
+                  onChangeText={(text) =>
+                    setEditForm({ ...editForm, bio: text })
+                  }
+                  textAlignVertical="top"
+                  editable={!updating}
+                />
+
+                {/* Skills Section */}
+                <Text style={styles.inputLabel}>Skills</Text>
+                <View style={styles.skillsInputContainer}>
+                  <TextInput
+                    style={styles.skillInput}
+                    placeholder="Add a skill (e.g., Plumbing, Carpentry)"
+                    placeholderTextColor="#999"
+                    value={newSkill}
+                    onChangeText={setNewSkill}
+                    onSubmitEditing={handleAddSkill}
+                    returnKeyType="done"
+                    editable={!updating}
+                  />
+                  <TouchableOpacity
+                    style={styles.addSkillButton}
+                    onPress={handleAddSkill}
+                    disabled={updating || !newSkill.trim()}
+                  >
+                    <Ionicons
+                      name="add-circle"
+                      size={24}
+                      color={newSkill.trim() ? primaryColor : "#ccc"}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {editForm.skills.length > 0 && (
+                  <View style={styles.skillsContainer}>
+                    {editForm.skills.map((skill, index) => (
+                      <View key={index} style={styles.skillChipEditable}>
+                        <Text style={styles.skillText}>{skill}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveSkill(skill)}
+                          disabled={updating}
+                          style={styles.removeSkillButton}
+                        >
+                          <Ionicons
+                            name="close-circle"
+                            size={18}
+                            color={primaryColor}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Role switch logic inside Edit Profile Modal */}
+                <Text style={styles.inputLabel}>Account Type</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text style={{ marginRight: 12 }}>User</Text>
+                  <Switch
+                    value={(editForm.role || user?.role) === "artisan"}
+                    onValueChange={async (value) => {
+                      const newRole = value ? "artisan" : "user";
+                      setEditForm({ ...editForm, role: newRole });
+                      // Immediately update in database
+                      if (user?.id) {
+                        setUpdating(true);
+                        const res = await updateProfileById(user.id, {
+                          role: newRole,
+                        });
+                        setUpdating(false);
+                        if (res.success) {
+                          setUserProfile((prev) =>
+                            prev ? { ...prev, role: newRole } : prev
+                          );
+                          dispatch(setUser({ ...user, role: newRole }));
+                          await saveProfileBackup({ ...user, role: newRole });
+                        } else {
+                          Alert.alert(
+                            "Error",
+                            res.error || "Failed to update role"
+                          );
+                        }
+                      }
+                    }}
+                    disabled={updating}
+                    trackColor={{ false: "#ddd", true: primaryColor }}
+                    thumbColor={primaryColor}
+                  />
+                  <Text style={{ marginLeft: 12 }}>Artisan</Text>
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setEditModalVisible(false)}
+                    disabled={updating}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitButton, updating && { opacity: 0.7 }]}
+                    onPress={handleUpdateProfile}
+                    disabled={updating}
+                  >
+                    {updating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>Save Changes</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Settings Modal */}
+        <Modal
+          visible={settingsModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setSettingsModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Settings</Text>
+                <TouchableOpacity
+                  onPress={() => setSettingsModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
               </View>
 
-              <View style={styles.modalButtons}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Password Section */}
+                <Text style={styles.sectionTitleModal}>Change Password</Text>
+
+                <Text style={styles.inputLabel}>Current Password *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter current password"
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                  value={settingsForm.currentPassword}
+                  onChangeText={(text) =>
+                    setSettingsForm({ ...settingsForm, currentPassword: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>New Password *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter new password (min 6 characters)"
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                  value={settingsForm.newPassword}
+                  onChangeText={(text) =>
+                    setSettingsForm({ ...settingsForm, newPassword: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Confirm New Password *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirm new password"
+                  placeholderTextColor="#999"
+                  secureTextEntry
+                  value={settingsForm.confirmPassword}
+                  onChangeText={(text) =>
+                    setSettingsForm({ ...settingsForm, confirmPassword: text })
+                  }
+                  editable={!updating}
+                />
+
                 <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setEditModalVisible(false)}
-                  disabled={updating}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.submitButton, updating && { opacity: 0.7 }]}
-                  onPress={handleUpdateProfile}
+                  style={[
+                    styles.submitButton,
+                    { marginBottom: 20 },
+                    updating && { opacity: 0.7 },
+                  ]}
+                  onPress={handleChangePassword}
                   disabled={updating}
                 >
                   {updating ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.submitButtonText}>Save Changes</Text>
+                    <Text style={styles.submitButtonText}>Change Password</Text>
                   )}
                 </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
-      {/* Settings Modal */}
-      <Modal
-        visible={settingsModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setSettingsModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Settings</Text>
-              <TouchableOpacity
-                onPress={() => setSettingsModalVisible(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+                {/* Notifications Section */}
+                <Text style={styles.sectionTitleModal}>Notifications</Text>
+
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Ionicons name="mail-outline" size={20} color="#666" />
+                    <Text style={styles.settingLabel}>Email Notifications</Text>
+                  </View>
+                  <Switch
+                    value={settingsForm.emailNotifications}
+                    onValueChange={(value) =>
+                      setSettingsForm({
+                        ...settingsForm,
+                        emailNotifications: value,
+                      })
+                    }
+                    trackColor={{ false: "#ddd", true: "#EE4710" }}
+                    thumbColor="#fff"
+                  />
+                </View>
+
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Ionicons
+                      name="notifications-outline"
+                      size={20}
+                      color="#666"
+                    />
+                    <Text style={styles.settingLabel}>Push Notifications</Text>
+                  </View>
+                  <Switch
+                    value={settingsForm.pushNotifications}
+                    onValueChange={(value) =>
+                      setSettingsForm({
+                        ...settingsForm,
+                        pushNotifications: value,
+                      })
+                    }
+                    trackColor={{ false: "#ddd", true: "#EE4710" }}
+                    thumbColor="#fff"
+                  />
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setSettingsModalVisible(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Password Section */}
-              <Text style={styles.sectionTitleModal}>Change Password</Text>
-              
-              <Text style={styles.inputLabel}>Current Password *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter current password"
-                placeholderTextColor="#999"
-                secureTextEntry
-                value={settingsForm.currentPassword}
-                onChangeText={(text) =>
-                  setSettingsForm({ ...settingsForm, currentPassword: text })
-                }
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>New Password *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter new password (min 6 characters)"
-                placeholderTextColor="#999"
-                secureTextEntry
-                value={settingsForm.newPassword}
-                onChangeText={(text) =>
-                  setSettingsForm({ ...settingsForm, newPassword: text })
-                }
-                editable={!updating}
-              />
-
-              <Text style={styles.inputLabel}>Confirm New Password *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Confirm new password"
-                placeholderTextColor="#999"
-                secureTextEntry
-                value={settingsForm.confirmPassword}
-                onChangeText={(text) =>
-                  setSettingsForm({ ...settingsForm, confirmPassword: text })
-                }
-                editable={!updating}
-              />
-
-              <TouchableOpacity
-                style={[styles.submitButton, { marginBottom: 20 }, updating && { opacity: 0.7 }]}
-                onPress={handleChangePassword}
-                disabled={updating}
-              >
-                {updating ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.submitButtonText}>Change Password</Text>
-                )}
-              </TouchableOpacity>
-
-              {/* Notifications Section */}
-              <Text style={styles.sectionTitleModal}>Notifications</Text>
-              
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Ionicons name="mail-outline" size={20} color="#666" />
-                  <Text style={styles.settingLabel}>Email Notifications</Text>
-                </View>
-                <Switch
-                  value={settingsForm.emailNotifications}
-                  onValueChange={(value) =>
-                    setSettingsForm({ ...settingsForm, emailNotifications: value })
-                  }
-                  trackColor={{ false: "#ddd", true: "#EE4710" }}
-                  thumbColor="#fff"
-                />
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Ionicons name="notifications-outline" size={20} color="#666" />
-                  <Text style={styles.settingLabel}>Push Notifications</Text>
-                </View>
-                <Switch
-                  value={settingsForm.pushNotifications}
-                  onValueChange={(value) =>
-                    setSettingsForm({ ...settingsForm, pushNotifications: value })
-                  }
-                  trackColor={{ false: "#ddd", true: "#EE4710" }}
-                  thumbColor="#fff"
-                />
-              </View>
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setSettingsModalVisible(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Close</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
           </View>
-        </View>
-      </Modal>
+        </Modal>
       </Animated.ScrollView>
     </View>
   );

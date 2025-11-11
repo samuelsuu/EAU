@@ -1,4 +1,3 @@
-// app/(tabs)/artisan.tsx - Complete with Enhanced Profile Modal & Messaging
 import {
   backgroundColor,
   fontColor,
@@ -6,6 +5,7 @@ import {
   secondaryColor,
   whiteColor,
 } from "@/constants/GlobalConstants";
+import { supabase } from "@/lib/supabase";
 import {
   getArtisanById,
   getArtisanFilters,
@@ -88,6 +88,12 @@ const Artisan = () => {
   const [messageModalVisible, setMessageModalVisible] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+
+  // Rating State
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [userRating, setUserRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   // Filter State
   const [filters, setFilters] = useState({
@@ -286,22 +292,137 @@ const Artisan = () => {
     }
   };
 
-  // Handle hire
-  const handleHire = (freelancer: Freelancer) => {
-    Alert.alert(
-      "Hire Artisan",
-      `Would you like to hire ${freelancer.name}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Hire",
-          onPress: () => {
-            setDetailModalVisible(false);
-            Alert.alert("Success", `Hiring request sent to ${freelancer.name}`);
+  // Handle rating
+  const handleRateUser = () => {
+    setRatingModalVisible(true);
+    setUserRating(0);
+    setRatingComment("");
+  };
+
+  // Submit rating
+  const submitRating = async () => {
+    if (!selectedFreelancer) {
+      Alert.alert("Error", "No artisan selected");
+      return;
+    }
+
+    if (userRating === 0) {
+      Alert.alert("Error", "Please select a rating");
+      return;
+    }
+
+    if (!authUser?.id) {
+      Alert.alert("Error", "You must be logged in to rate");
+      return;
+    }
+
+    setSubmittingRating(true);
+    try {
+      // Insert rating into Supabase
+      const { data, error } = await supabase
+        .from("ratings")
+        .insert({
+          reviewer_id: authUser.id,
+          artisan_id: selectedFreelancer.id,
+          rating: userRating,
+          review: ratingComment.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // Calculate and update the average rating manually
+      const { data: allRatings, error: fetchError } = await supabase
+        .from("ratings")
+        .select("rating")
+        .eq("artisan_id", selectedFreelancer.id);
+
+      if (!fetchError && allRatings) {
+        const totalRatings = allRatings.length;
+        const sumRatings = allRatings.reduce((sum, r) => sum + r.rating, 0);
+        const averageRating = sumRatings / totalRatings;
+
+        // Update the profiles table with the new average
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update({
+            average_rating: averageRating,
+            rating_count: totalRatings,
+          })
+          .eq("id", selectedFreelancer.id);
+
+        if (updateError) {
+          console.error("Error updating average rating:", updateError);
+        }
+
+        // Update local state immediately
+        setSelectedFreelancer({
+          ...selectedFreelancer,
+          average_rating: averageRating,
+          rating_count: totalRatings,
+          rating: averageRating, // Update rating field as well
+          reviews: totalRatings,
+        });
+
+        // Update the artisan in the main list
+        setArtisans((prev) =>
+          prev.map((a) =>
+            a.id === selectedFreelancer.id
+              ? {
+                  ...a,
+                  average_rating: averageRating,
+                  rating_count: totalRatings,
+                  rating: averageRating,
+                  reviews: totalRatings,
+                }
+              : a
+          )
+        );
+
+        setFilteredArtisans((prev) =>
+          prev.map((a) =>
+            a.id === selectedFreelancer.id
+              ? {
+                  ...a,
+                  average_rating: averageRating,
+                  rating_count: totalRatings,
+                  rating: averageRating,
+                  reviews: totalRatings,
+                }
+              : a
+          )
+        );
+      }
+
+      Alert.alert(
+        "Success",
+        "Rating submitted successfully!",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setRatingModalVisible(false);
+              setUserRating(0);
+              setRatingComment("");
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } catch (error: any) {
+      console.error("Submit rating error:", error);
+      
+      // Check for duplicate rating
+      if (error.code === "23505" || error.message?.includes("duplicate")) {
+        Alert.alert("Error", "You have already rated this artisan");
+      } else {
+        Alert.alert("Error", error?.message || "Failed to submit rating");
+      }
+    } finally {
+      setSubmittingRating(false);
+    }
   };
 
   // Render freelancer card
@@ -547,7 +668,7 @@ const Artisan = () => {
         }
       />
 
-      {/* Filter Modal - Keeping your original filter modal */}
+      {/* Filter Modal */}
       <Modal
         visible={filterModalVisible}
         animationType="slide"
@@ -567,7 +688,6 @@ const Artisan = () => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Your filter options here - keeping original */}
               {filterData?.expertise_levels &&
                 filterData.expertise_levels.length > 0 && (
                   <View style={styles.filterSection}>
@@ -628,7 +748,7 @@ const Artisan = () => {
         </View>
       </Modal>
 
-      {/* Enhanced Detail Modal with Message Integration */}
+      {/* Enhanced Detail Modal with All User Data */}
       <Modal
         visible={detailModalVisible}
         animationType="slide"
@@ -694,10 +814,10 @@ const Artisan = () => {
                 )}
               </View>
 
-              {/* Stats Cards */}
+              {/* Stats Cards - Enhanced to show all available data */}
               <View style={styles.detailStatsContainer}>
                 {/* Reviews */}
-                {(selectedFreelancer.average_rating || selectedFreelancer.rating) && (
+                {(selectedFreelancer.average_rating !== undefined || selectedFreelancer.rating !== undefined) && (
                   <View style={styles.detailInfoCard}>
                     <View style={styles.detailInfoRow}>
                       <View style={[styles.detailIcon, { backgroundColor: "#FFF4ED" }]}>
@@ -706,23 +826,53 @@ const Artisan = () => {
                       <Text style={styles.detailInfoLabel}>Reviews</Text>
                     </View>
                     <Text style={styles.detailInfoValue}>
-                      {selectedFreelancer.average_rating || selectedFreelancer.rating} (
-                      {selectedFreelancer.rating_count || selectedFreelancer.reviews || 0})
+                      {(selectedFreelancer.average_rating || selectedFreelancer.rating || 0).toFixed(1)} (
+                      {selectedFreelancer.rating_count || selectedFreelancer.reviews || 0} reviews)
+                    </Text>
+                  </View>
+                )}
+
+                {/* Completed Jobs */}
+                {selectedFreelancer.completed_jobs !== undefined && (
+                  <View style={styles.detailInfoCard}>
+                    <View style={styles.detailInfoRow}>
+                      <View style={[styles.detailIcon, { backgroundColor: "#DCFAE6" }]}>
+                        <Ionicons name="checkmark-circle" size={16} color="#17B26A" />
+                      </View>
+                      <Text style={styles.detailInfoLabel}>Completed Jobs</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>
+                      {selectedFreelancer.completed_jobs} projects
                     </Text>
                   </View>
                 )}
 
                 {/* Views */}
-                {selectedFreelancer.views && (
+                {selectedFreelancer.views !== undefined && (
                   <View style={styles.detailInfoCard}>
                     <View style={styles.detailInfoRow}>
                       <View style={[styles.detailIcon, { backgroundColor: "#EFF8FF" }]}>
                         <Ionicons name="eye" size={16} color="#2E90FA" />
                       </View>
-                      <Text style={styles.detailInfoLabel}>Views</Text>
+                      <Text style={styles.detailInfoLabel}>Profile Views</Text>
                     </View>
                     <Text style={styles.detailInfoValue}>
                       {selectedFreelancer.views}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Experience Level */}
+                {selectedFreelancer.experience_level && (
+                  <View style={styles.detailInfoCard}>
+                    <View style={styles.detailInfoRow}>
+                      <View style={[styles.detailIcon, { backgroundColor: "#F9F5FF" }]}>
+                        <Ionicons name="trophy" size={16} color="#7A50EC" />
+                      </View>
+                      <Text style={styles.detailInfoLabel}>Experience Level</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>
+                      {selectedFreelancer.experience_level}
                     </Text>
                   </View>
                 )}
@@ -749,7 +899,7 @@ const Artisan = () => {
                       <View style={[styles.detailIcon, { backgroundColor: "#FEE4E2" }]}>
                         <Ionicons name="person" size={16} color="#F04438" />
                       </View>
-                      <Text style={styles.detailInfoLabel}>Freelancer</Text>
+                      <Text style={styles.detailInfoLabel}>Type</Text>
                     </View>
                     <Text style={styles.detailInfoValue}>
                       {selectedFreelancer.freelancer_type}
@@ -786,6 +936,21 @@ const Artisan = () => {
                     </Text>
                   </View>
                 )}
+
+                {/* Profession/Title */}
+                {(selectedFreelancer.profession || selectedFreelancer.title) && (
+                  <View style={styles.detailInfoCard}>
+                    <View style={styles.detailInfoRow}>
+                      <View style={[styles.detailIcon, { backgroundColor: "#FFF4ED" }]}>
+                        <Ionicons name="briefcase" size={16} color="#DC6803" />
+                      </View>
+                      <Text style={styles.detailInfoLabel}>Profession</Text>
+                    </View>
+                    <Text style={styles.detailInfoValue}>
+                      {selectedFreelancer.profession || selectedFreelancer.title}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Description/About */}
@@ -816,21 +981,21 @@ const Artisan = () => {
                 </View>
               )}
 
-              {/* Action Buttons with Message Integration */}
+              {/* Action Buttons - Message and Rate */}
               <View style={styles.detailActions}>
                 <TouchableOpacity
-                  style={styles.detailMessageButton}
+                  style={styles.detailRateButton}
+                  onPress={handleRateUser}
+                >
+                  <Ionicons name="star-outline" size={20} color={primaryColor} />
+                  <Text style={styles.detailRateText}>Rate</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.detailMessageButtonFull}
                   onPress={() => handleSendMessage(selectedFreelancer)}
                 >
                   <Ionicons name="chatbubble-outline" size={20} color={whiteColor} />
-                  <Text style={styles.detailMessageText}>Message</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.detailHireButton}
-                  onPress={() => handleHire(selectedFreelancer)}
-                >
-                  <Text style={styles.detailHireText}>Hire Now</Text>
-                  <Ionicons name="arrow-forward" size={20} color={whiteColor} />
+                  <Text style={styles.detailMessageText}>Send Message</Text>
                 </TouchableOpacity>
               </View>
 
@@ -931,6 +1096,137 @@ const Artisan = () => {
                   <>
                     <Ionicons name="send" size={18} color={whiteColor} />
                     <Text style={styles.sendMessageButtonText}>Send Message</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Rating Modal */}
+      <Modal
+        visible={ratingModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setRatingModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.ratingModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rate Artisan</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setRatingModalVisible(false);
+                  setUserRating(0);
+                  setRatingComment("");
+                }}
+                disabled={submittingRating}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedFreelancer && (
+              <View style={styles.recipientInfo}>
+                <View style={styles.recipientHeader}>
+                  {selectedFreelancer.avatar ? (
+                    <Image
+                      source={{ uri: selectedFreelancer.avatar }}
+                      style={styles.recipientAvatar}
+                    />
+                  ) : (
+                    <View style={[styles.recipientAvatar, styles.avatarPlaceholder]}>
+                      <Ionicons name="person" size={24} color="#999" />
+                    </View>
+                  )}
+                  <View style={styles.recipientDetails}>
+                    <Text style={styles.recipientName}>
+                      {selectedFreelancer.name}
+                    </Text>
+                    {selectedFreelancer.profession && (
+                      <Text style={styles.recipientProfession}>
+                        {selectedFreelancer.profession}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            <Text style={styles.ratingLabel}>How would you rate this artisan?</Text>
+            
+            {/* Star Rating */}
+            <View style={styles.starsContainer}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity
+                  key={star}
+                  onPress={() => setUserRating(star)}
+                  disabled={submittingRating}
+                  style={styles.starButton}
+                >
+                  <Ionicons
+                    name={star <= userRating ? "star" : "star-outline"}
+                    size={40}
+                    color={star <= userRating ? "#FFD700" : "#E5E5E5"}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {userRating > 0 && (
+              <Text style={styles.ratingValue}>
+                {userRating === 1 && "Poor"}
+                {userRating === 2 && "Fair"}
+                {userRating === 3 && "Good"}
+                {userRating === 4 && "Very Good"}
+                {userRating === 5 && "Excellent"}
+              </Text>
+            )}
+
+            <Text style={styles.inputLabel}>Add a comment (optional)</Text>
+            <TextInput
+              style={styles.ratingCommentInput}
+              placeholder="Share your experience with this artisan..."
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={5}
+              value={ratingComment}
+              onChangeText={setRatingComment}
+              textAlignVertical="top"
+              editable={!submittingRating}
+              maxLength={300}
+            />
+            <Text style={styles.charCount}>
+              {ratingComment.length}/300 characters
+            </Text>
+
+            <View style={styles.messageModalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setRatingModalVisible(false);
+                  setUserRating(0);
+                  setRatingComment("");
+                }}
+                disabled={submittingRating}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.submitRatingButton,
+                  (userRating === 0 || submittingRating) && { opacity: 0.5 },
+                ]}
+                onPress={submitRating}
+                disabled={userRating === 0 || submittingRating}
+              >
+                {submittingRating ? (
+                  <ActivityIndicator color={whiteColor} size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={18} color={whiteColor} />
+                    <Text style={styles.submitRatingButtonText}>Submit Rating</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -1433,22 +1729,24 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     gap: 12,
   },
-  detailMessageButton: {
+  detailRateButton: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: secondaryColor,
+    backgroundColor: whiteColor,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    borderWidth: 2,
+    borderColor: primaryColor,
   },
-  detailMessageText: {
+  detailRateText: {
     fontSize: 16,
     fontWeight: "700",
-    color: whiteColor,
+    color: primaryColor,
   },
-  detailHireButton: {
+  detailMessageButtonFull: {
     flex: 1,
     flexDirection: "row",
     backgroundColor: primaryColor,
@@ -1457,8 +1755,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    shadowColor: primaryColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  detailHireText: {
+  detailMessageText: {
     fontSize: 16,
     fontWeight: "700",
     color: whiteColor,
@@ -1542,7 +1845,7 @@ const styles = StyleSheet.create({
   sendMessageButton: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: secondaryColor,
+    backgroundColor: primaryColor,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -1550,6 +1853,63 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sendMessageButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: whiteColor,
+  },
+  ratingModalContent: {
+    backgroundColor: whiteColor,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: "85%",
+  },
+  ratingLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: fontColor,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  starsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  starButton: {
+    padding: 4,
+  },
+  ratingValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: primaryColor,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  ratingCommentInput: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 15,
+    color: fontColor,
+    minHeight: 120,
+    backgroundColor: backgroundColor,
+    marginBottom: 8,
+  },
+  submitRatingButton: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: primaryColor,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  submitRatingButtonText: {
     fontSize: 15,
     fontWeight: "600",
     color: whiteColor,
