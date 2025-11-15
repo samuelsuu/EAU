@@ -15,6 +15,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSelector } from "react-redux";
@@ -27,15 +28,21 @@ import {
   highlightColor,
 } from "@/constants/GlobalConstants";
 import { supabase } from "@/lib/supabase";
-import { 
-  getConversationsList, 
-  getConversation, 
-  getUnreadMessageCount, 
-  sendReply, 
-  markMessageAsRead, 
+import {
+  getConversationsList,
+  getConversation,
+  getUnreadMessageCount,
+  sendReply,
+  markMessageAsRead,
   Message,
-  Conversation 
+  Conversation,
 } from "@/services/messages";
+import {
+  getOpenJobs,
+  submitProposal,
+  hasUserProposed,
+  getUnreadNotificationCount as getJobNotificationCount,
+} from "@/services/jobs";
 import { getProfileById } from "@/services/login";
 
 const { width } = Dimensions.get("window");
@@ -69,7 +76,7 @@ const Home = () => {
   // Get time-based greeting
   const getTimeBasedGreeting = () => {
     const hour = new Date().getHours();
-    
+
     if (hour >= 5 && hour < 12) {
       return { greeting: "Good Morning", emoji: "🌅" };
     } else if (hour >= 12 && hour < 17) {
@@ -87,19 +94,23 @@ const Home = () => {
   const displayName = useMemo(() => {
     if (!user) return "Guest";
     if (typeof user === "string") return user;
-    
-    // Try first_name + last_name first
+
+    // Try username first
+    const username = user.username || user.user_name || user.userName;
+    if (username) return username;
+
+    // Fall back to name field
+    const name = user.name;
+    if (name) return name;
+
+    // Try first_name + last_name as fallback
     const first = user.first_name || user.firstName || user.first;
     const last = user.last_name || user.lastName || user.last;
     const full = `${first || ""} ${last || ""}`.trim();
     if (full) return full;
-    
-    // Fall back to other name fields
-    const name = user.name || user.user_name || user.username || user.userName;
-    if (name) return name;
-    
+
     // Last resort: email or "User"
-    return user.email?.split('@')[0] || "User";
+    return user.email?.split("@")[0] || "User";
   }, [user]);
 
   // State
@@ -123,10 +134,13 @@ const Home = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingMessages, setLoadingMessages] = useState(false);
-  
+
   // Conversation View State
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
+  const [selectedConversation, setSelectedConversation] =
+    useState<Conversation | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<Message[]>(
+    []
+  );
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -142,50 +156,22 @@ const Home = () => {
     try {
       setLoading(true);
 
-      // Fetch tasks (job_type = 'task')
-      const { data: tasksData, error: tasksError } = await supabase
-        .from("jobs")
-        .select(`
-          *,
-          client:profiles!jobs_client_id_fkey(
-            id,
-            first_name,
-            last_name,
-            avatar_url
-          )
-        `)
-        .eq("job_type", "task")
-        .eq("status", "open")
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (tasksError) {
-        console.error("Error fetching tasks:", tasksError);
+      // Fetch tasks
+      const tasksRes = await getOpenJobs({ job_type: "task", limit: 10 });
+      if (tasksRes.success && tasksRes.data) {
+        setTasks(tasksRes.data);
       } else {
-        setTasks(tasksData || []);
+        console.error("Error fetching tasks:", tasksRes.error);
+        setTasks([]);
       }
 
-      // Fetch projects (job_type = 'project')
-      const { data: projectsData, error: projectsError } = await supabase
-        .from("jobs")
-        .select(`
-          *,
-          client:profiles!jobs_client_id_fkey(
-            id,
-            first_name,
-            last_name,
-            avatar_url
-          )
-        `)
-        .eq("job_type", "project")
-        .eq("status", "open")
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (projectsError) {
-        console.error("Error fetching projects:", projectsError);
+      // Fetch projects
+      const projectsRes = await getOpenJobs({ job_type: "project", limit: 10 });
+      if (projectsRes.success && projectsRes.data) {
+        setProjects(projectsRes.data);
       } else {
-        setProjects(projectsData || []);
+        console.error("Error fetching projects:", projectsRes.error);
+        setProjects([]);
       }
     } catch (error) {
       console.error("Error fetching jobs:", error);
@@ -201,7 +187,7 @@ const Home = () => {
       console.log("No user ID, cannot fetch conversations");
       return;
     }
-    
+
     try {
       setLoadingMessages(true);
       const res = await getConversationsList(user.id);
@@ -222,15 +208,15 @@ const Home = () => {
   // Fetch conversation messages
   const fetchConversationMessages = async (otherUserId: string) => {
     if (!user?.id) return;
-    
+
     try {
       setLoadingConversation(true);
       const res = await getConversation(user.id, otherUserId);
       if (res.success && res.data) {
         setConversationMessages(res.data);
         // Mark all unread messages as read
-        const unreadMessages = res.data.filter((msg) => 
-          msg.receiver_id === user.id && (!msg.is_read && !msg.read_at)
+        const unreadMessages = res.data.filter(
+          (msg) => msg.receiver_id === user.id && !msg.is_read && !msg.read_at
         );
         for (const msg of unreadMessages) {
           await markMessageAsRead(msg.id);
@@ -254,23 +240,29 @@ const Home = () => {
     }
   };
 
+  const [hasProposed, setHasProposed] = useState(false);
+  const [checkingProposal, setCheckingProposal] = useState(false);
+
   // Fetch unread count
   const fetchUnreadCount = async () => {
     if (!user?.id) {
       setUnreadCount(0);
       return;
     }
-    
+
     try {
-      const res = await getUnreadMessageCount(user.id);
-      if (res.success) {
-        const newCount = res.count || 0;
-        console.log("Unread count updated:", newCount);
-        setUnreadCount(newCount);
-      } else {
-        console.error("Failed to fetch unread count:", res.error);
-        setUnreadCount(0);
-      }
+      // Fetch message unread count
+      const messageRes = await getUnreadMessageCount(user.id);
+      const messageCount = messageRes.success ? messageRes.count || 0 : 0;
+
+      // Fetch notification unread count
+      const notifRes = await getJobNotificationCount(user.id);
+      const notifCount = notifRes.success ? notifRes.count || 0 : 0;
+
+      // Combined count
+      const totalCount = messageCount + notifCount;
+      console.log("Total unread count (messages + notifications):", totalCount);
+      setUnreadCount(totalCount);
     } catch (error) {
       console.error("Error fetching unread count:", error);
       setUnreadCount(0);
@@ -394,56 +386,111 @@ const Home = () => {
   };
 
   // Handle apply
-  const handleApply = (job: Job) => {
+  const handleApply = async (job: Job) => {
+    if (!user?.id) {
+      Alert.alert(
+        "Authentication Required",
+        "Please sign in to apply for jobs"
+      );
+      return;
+    }
+
+    // Check if user has already proposed
+    setCheckingProposal(true);
+    const checkRes = await hasUserProposed(user.id, job.id);
+    setCheckingProposal(false);
+
+    if (checkRes.hasProposed) {
+      Alert.alert(
+        "Already Applied",
+        "You have already submitted a proposal for this job.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
     setSelectedJob(job);
+    setHasProposed(false);
     setApplyModalVisible(true);
   };
 
   const submitApplication = async () => {
     if (!applicationData.coverLetter.trim()) {
-      alert("Please write a cover letter");
+      Alert.alert(
+        "Required Field",
+        "Please write a cover letter explaining why you're the best fit"
+      );
       return;
     }
 
     if (!user?.id) {
-      alert("Please sign in to apply");
+      Alert.alert("Authentication Required", "Please sign in to apply");
+      return;
+    }
+
+    if (!selectedJob?.id) {
+      Alert.alert("Error", "No job selected");
       return;
     }
 
     setApplying(true);
     try {
-      // Submit proposal to Supabase
-      const { data, error } = await supabase
-        .from("proposals")
-        .insert({
-          job_id: selectedJob?.id,
-          freelancer_id: user.id,
-          cover_letter: applicationData.coverLetter,
-          proposed_amount: applicationData.proposedPrice 
-            ? parseFloat(applicationData.proposedPrice) 
-            : null,
-          status: "pending",
-        })
-        .select()
-        .single();
+      const proposalRes = await submitProposal({
+        job_id: selectedJob.id,
+        freelancer_id: user.id,
+        cover_letter: applicationData.coverLetter.trim(),
+        proposed_amount: applicationData.proposedPrice
+          ? parseFloat(applicationData.proposedPrice)
+          : undefined,
+      });
 
-      if (error) {
-        console.error("Error submitting proposal:", error);
-        alert("Failed to submit application. Please try again.");
-        return;
+      if (proposalRes.success) {
+        Alert.alert(
+          "Success! 🎉",
+          "Your proposal has been submitted successfully. The job owner will be notified and will review your application.",
+          [
+            {
+              text: "View My Proposals",
+              onPress: () => {
+                setApplyModalVisible(false);
+                setApplicationData({ coverLetter: "", proposedPrice: "" });
+                // Navigate to proposals screen if you have one
+                // router.push("/proposals");
+              },
+            },
+            {
+              text: "OK",
+              onPress: () => {
+                setApplyModalVisible(false);
+                setApplicationData({ coverLetter: "", proposedPrice: "" });
+              },
+            },
+          ]
+        );
+      } else {
+        // Handle duplicate proposal error
+        if (
+          proposalRes.error?.includes("duplicate") ||
+          proposalRes.error?.includes("unique")
+        ) {
+          Alert.alert(
+            "Already Applied",
+            "You have already submitted a proposal for this job."
+          );
+        } else {
+          Alert.alert(
+            "Error",
+            proposalRes.error || "Failed to submit proposal. Please try again."
+          );
+        }
       }
-
-      alert("Application submitted successfully!");
-      setApplyModalVisible(false);
-      setApplicationData({ coverLetter: "", proposedPrice: "" });
-    } catch (error) {
-      console.error("Error submitting application:", error);
-      alert("Failed to submit application");
+    } catch (error: any) {
+      console.error("Error submitting proposal:", error);
+      Alert.alert("Error", "Failed to submit proposal. Please try again.");
     } finally {
       setApplying(false);
     }
   };
-
   // Render task card
   const renderTaskCard = ({ item }: { item: Job }) => (
     <TouchableOpacity
@@ -492,8 +539,8 @@ const Home = () => {
         <View style={styles.taskFooter}>
           <View style={styles.clientInfo}>
             {item.client?.avatar_url ? (
-              <Image 
-                source={{ uri: item.client.avatar_url }} 
+              <Image
+                source={{ uri: item.client.avatar_url }}
                 style={styles.clientAvatar}
               />
             ) : (
@@ -502,8 +549,8 @@ const Home = () => {
               </View>
             )}
             <Text style={styles.clientName}>
-              {item.client 
-                ? `${item.client.first_name} ${item.client.last_name}` 
+              {item.client
+                ? `${item.client.first_name} ${item.client.last_name}`
                 : "Anonymous"}
             </Text>
           </View>
@@ -596,8 +643,8 @@ const Home = () => {
       <View style={styles.projectFooter}>
         <View style={styles.authorSection}>
           {item.client?.avatar_url ? (
-            <Image 
-              source={{ uri: item.client.avatar_url }} 
+            <Image
+              source={{ uri: item.client.avatar_url }}
               style={styles.authorAvatar}
             />
           ) : (
@@ -608,8 +655,8 @@ const Home = () => {
           <View style={styles.authorInfo}>
             <Text style={styles.authorLabel}>Client</Text>
             <Text style={styles.authorName} numberOfLines={1}>
-              {item.client 
-                ? `${item.client.first_name} ${item.client.last_name}` 
+              {item.client
+                ? `${item.client.first_name} ${item.client.last_name}`
                 : "Anonymous"}
             </Text>
           </View>
@@ -642,7 +689,9 @@ const Home = () => {
     <View style={styles.emptyContainer}>
       <Ionicons name="briefcase-outline" size={64} color="#ccc" />
       <Text style={styles.emptyText}>No {activeTab} available</Text>
-      <Text style={styles.emptySubtext}>Check back later for new opportunities</Text>
+      <Text style={styles.emptySubtext}>
+        Check back later for new opportunities
+      </Text>
     </View>
   );
 
@@ -669,7 +718,11 @@ const Home = () => {
           style={styles.messageIconButton}
           onPress={openMessagesModal}
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={24} color={fontColor} />
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={24}
+            color={fontColor}
+          />
           {unreadCount > 0 && (
             <View style={styles.messageBadge}>
               <Text style={styles.messageBadgeText}>
@@ -682,7 +735,12 @@ const Home = () => {
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+        <Ionicons
+          name="search"
+          size={20}
+          color="#999"
+          style={styles.searchIcon}
+        />
         <TextInput
           style={styles.searchInput}
           placeholder="Search for tasks or projects..."
@@ -700,7 +758,10 @@ const Home = () => {
           onPress={() => setActiveTab("tasks")}
         >
           <Text
-            style={[styles.tabText, activeTab === "tasks" && styles.activeTabText]}
+            style={[
+              styles.tabText,
+              activeTab === "tasks" && styles.activeTabText,
+            ]}
           >
             Tasks ({tasks.length})
           </Text>
@@ -761,6 +822,19 @@ const Home = () => {
                   <Text style={styles.jobPreviewBudget}>
                     {formatBudget(selectedJob)}
                   </Text>
+                  {selectedJob.proposal_count !== undefined &&
+                    selectedJob.proposal_count > 0 && (
+                      <View style={styles.proposalCountBadge}>
+                        <Ionicons name="people" size={14} color="#666" />
+                        <Text style={styles.proposalCountText}>
+                          {selectedJob.proposal_count}{" "}
+                          {selectedJob.proposal_count === 1
+                            ? "proposal"
+                            : "proposals"}{" "}
+                          submitted
+                        </Text>
+                      </View>
+                    )}
                 </View>
               )}
 
@@ -786,7 +860,10 @@ const Home = () => {
                 keyboardType="numeric"
                 value={applicationData.proposedPrice}
                 onChangeText={(text) =>
-                  setApplicationData({ ...applicationData, proposedPrice: text })
+                  setApplicationData({
+                    ...applicationData,
+                    proposedPrice: text,
+                  })
                 }
               />
 
@@ -869,7 +946,7 @@ const Home = () => {
                   key={conversation.userId}
                   style={[
                     styles.conversationItem,
-                    conversation.isUnread && styles.unreadConversationItem
+                    conversation.isUnread && styles.unreadConversationItem,
                   ]}
                   onPress={() => openConversation(conversation)}
                 >
@@ -886,26 +963,38 @@ const Home = () => {
                           style={styles.conversationAvatar}
                         />
                       ) : (
-                        <View style={[styles.conversationAvatar, styles.avatarPlaceholder]}>
+                        <View
+                          style={[
+                            styles.conversationAvatar,
+                            styles.avatarPlaceholder,
+                          ]}
+                        >
                           <Ionicons name="person" size={24} color="#999" />
                         </View>
                       )}
                     </TouchableOpacity>
                     <View style={styles.conversationContent}>
                       <View style={styles.conversationHeader}>
-                        <Text style={styles.conversationName}>{conversation.userName}</Text>
+                        <Text style={styles.conversationName}>
+                          {conversation.userName}
+                        </Text>
                         <Text style={styles.conversationTime}>
                           {formatDate(conversation.lastMessageTime)}
                         </Text>
                       </View>
                       <View style={styles.conversationFooter}>
-                        <Text style={styles.conversationLastMessage} numberOfLines={1}>
+                        <Text
+                          style={styles.conversationLastMessage}
+                          numberOfLines={1}
+                        >
                           {conversation.lastMessage}
                         </Text>
                         {conversation.unreadCount > 0 && (
                           <View style={styles.conversationBadge}>
                             <Text style={styles.conversationBadgeText}>
-                              {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
+                              {conversation.unreadCount > 99
+                                ? "99+"
+                                : conversation.unreadCount}
                             </Text>
                           </View>
                         )}
@@ -956,7 +1045,9 @@ const Home = () => {
                   style={styles.chatHeaderAvatar}
                 />
               ) : (
-                <View style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}>
+                <View
+                  style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}
+                >
                   <Ionicons name="person" size={20} color="#999" />
                 </View>
               )}
@@ -973,7 +1064,7 @@ const Home = () => {
               <ActivityIndicator size="large" color={primaryColor} />
             </View>
           ) : (
-            <ScrollView 
+            <ScrollView
               ref={chatScrollViewRef}
               style={styles.chatMessagesList}
               contentContainerStyle={styles.chatMessagesContent}
@@ -988,7 +1079,9 @@ const Home = () => {
                     key={message.id}
                     style={[
                       styles.messageBubbleContainer,
-                      isSent ? styles.sentMessageContainer : styles.receivedMessageContainer
+                      isSent
+                        ? styles.sentMessageContainer
+                        : styles.receivedMessageContainer,
                     ]}
                   >
                     {!isSent && message.sender?.avatar_url && (
@@ -1000,13 +1093,17 @@ const Home = () => {
                     <View
                       style={[
                         styles.messageBubble,
-                        isSent ? styles.sentMessageBubble : styles.receivedMessageBubble
+                        isSent
+                          ? styles.sentMessageBubble
+                          : styles.receivedMessageBubble,
                       ]}
                     >
                       <Text
                         style={[
                           styles.messageBubbleText,
-                          isSent ? styles.sentMessageText : styles.receivedMessageText
+                          isSent
+                            ? styles.sentMessageText
+                            : styles.receivedMessageText,
                         ]}
                       >
                         {message.content}
@@ -1014,18 +1111,21 @@ const Home = () => {
                       <Text
                         style={[
                           styles.messageBubbleTime,
-                          isSent ? styles.sentMessageTime : styles.receivedMessageTime
+                          isSent
+                            ? styles.sentMessageTime
+                            : styles.receivedMessageTime,
                         ]}
                       >
-                        {new Date(message.created_at).toLocaleTimeString("en-US", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(message.created_at).toLocaleTimeString(
+                          "en-US",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
                       </Text>
                     </View>
-                    {isSent && (
-                      <View style={{ width: 32 }} />
-                    )}
+                    {isSent && <View style={{ width: 32 }} />}
                   </View>
                 );
               })}
@@ -1047,7 +1147,8 @@ const Home = () => {
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                (!messageText.trim() || sendingMessage) && styles.sendButtonDisabled
+                (!messageText.trim() || sendingMessage) &&
+                  styles.sendButtonDisabled,
               ]}
               onPress={handleSendMessage}
               disabled={!messageText.trim() || sendingMessage}
@@ -1092,16 +1193,22 @@ const Home = () => {
               <View style={styles.profileViewHeader}>
                 {viewedProfile.avatar || viewedProfile.avatar_url ? (
                   <Image
-                    source={{ uri: viewedProfile.avatar || viewedProfile.avatar_url }}
+                    source={{
+                      uri: viewedProfile.avatar || viewedProfile.avatar_url,
+                    }}
                     style={styles.profileViewAvatar}
                   />
                 ) : (
-                  <View style={[styles.profileViewAvatar, styles.avatarPlaceholder]}>
+                  <View
+                    style={[styles.profileViewAvatar, styles.avatarPlaceholder]}
+                  >
                     <Ionicons name="person" size={48} color="#999" />
                   </View>
                 )}
                 <Text style={styles.profileViewName}>
-                  {`${viewedProfile.first_name || ""} ${viewedProfile.last_name || ""}`.trim() ||
+                  {`${viewedProfile.first_name || ""} ${
+                    viewedProfile.last_name || ""
+                  }`.trim() ||
                     viewedProfile.username ||
                     viewedProfile.name ||
                     "Unknown User"}
@@ -1121,7 +1228,9 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="mail-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Email:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.email}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.email}
+                    </Text>
                   </View>
                 )}
 
@@ -1129,7 +1238,9 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="call-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Phone:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.phone}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.phone}
+                    </Text>
                   </View>
                 )}
 
@@ -1137,14 +1248,18 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="location-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Location:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.location}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.location}
+                    </Text>
                   </View>
                 )}
 
                 {viewedProfile.bio && (
                   <View style={styles.profileBioSection}>
                     <Text style={styles.profileSectionTitle}>About</Text>
-                    <Text style={styles.profileBioText}>{viewedProfile.bio}</Text>
+                    <Text style={styles.profileBioText}>
+                      {viewedProfile.bio}
+                    </Text>
                   </View>
                 )}
 
@@ -1152,11 +1267,13 @@ const Home = () => {
                   <View style={styles.profileSkillsSection}>
                     <Text style={styles.profileSectionTitle}>Skills</Text>
                     <View style={styles.profileSkillsContainer}>
-                      {viewedProfile.skills.map((skill: string, index: number) => (
-                        <View key={index} style={styles.profileSkillTag}>
-                          <Text style={styles.profileSkillText}>{skill}</Text>
-                        </View>
-                      ))}
+                      {viewedProfile.skills.map(
+                        (skill: string, index: number) => (
+                          <View key={index} style={styles.profileSkillTag}>
+                            <Text style={styles.profileSkillText}>{skill}</Text>
+                          </View>
+                        )
+                      )}
                     </View>
                   </View>
                 )}
@@ -2061,5 +2178,16 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     backgroundColor: "#ccc",
     opacity: 0.5,
+  },
+  proposalCountBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    gap: 6,
+  },
+  proposalCountText: {
+    fontSize: 13,
+    color: "#666",
+    fontWeight: "500",
   },
 });

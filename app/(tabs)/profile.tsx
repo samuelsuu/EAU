@@ -80,14 +80,27 @@ interface EditForm {
   country: string;
   role: "user" | "artisan";
   skills: string[];
-  // Rating fields
   rating?: number;
   average_rating?: number;
   rating_count?: number;
   reviews?: number;
-   // View count (for artisans)
-   views?: number;
-  
+  views?: number;
+}
+
+interface Job {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  created_at: string;
+  images?: { id: string; image_url: string }[];
+  job_images?: { id: string; image_url: string }[];
+}
+
+interface JobForm {
+  title: string;
+  description: string;
+  images: string[];
 }
 
 const Profile = () => {
@@ -96,6 +109,8 @@ const Profile = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [jobModalVisible, setJobModalVisible] = useState(false);
+  const [editJobModalVisible, setEditJobModalVisible] = useState(false);
   const [updating, setUpdating] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -116,6 +131,16 @@ const Profile = () => {
     skills: [],
   });
 
+  const [jobForm, setJobForm] = useState<JobForm>({
+    title: "",
+    description: "",
+    images: [],
+  });
+
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+
   const [newSkill, setNewSkill] = useState("");
 
   const [settingsForm, setSettingsForm] = useState({
@@ -127,6 +152,7 @@ const Profile = () => {
   });
 
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [jobImageUploading, setJobImageUploading] = useState(false);
 
   const handlePickAvatar = async () => {
     try {
@@ -197,11 +223,290 @@ const Profile = () => {
     }
   };
 
+  useEffect(() => {
+    console.log("🔍 Auth User from Redux:", authUser);
+    console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
+
+    loadProfile(false);
+  }, []);
+
+  // Load jobs when user profile is loaded and user is an artisan
+  useEffect(() => {
+    if (user && (user.role === "artisan" || userType === "artisan")) {
+      loadJobs();
+    }
+  }, [user?.id, user?.role, userType]);
+
+  // Job Management Functions
+  const loadJobs = async () => {
+    if (!user?.id) return;
+
+    setLoadingJobs(true);
+    try {
+      const { data, error } = await supabase
+        .from("jobs")
+        .select(`
+          *,
+          job_images (
+            id,
+            image_url
+          )
+        `)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      
+      // Log the fetched data to see the structure
+      console.log("📦 Fetched jobs data:", JSON.stringify(data, null, 2));
+      
+      setJobs(data || []);
+    } catch (error: any) {
+      console.error("Error loading jobs:", error);
+      Alert.alert("Error", "Failed to load jobs");
+    } finally {
+      setLoadingJobs(false);
+    }
+  };
+
+  const handlePickJobImages = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission denied",
+          "Permission to access media library is required."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        base64: false,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      if (jobForm.images.length + result.assets.length > 2) {
+        Alert.alert("Limit Reached", "You can only add up to 2 images per job");
+        return;
+      }
+
+      setJobImageUploading(true);
+
+      const newImages = await Promise.all(
+        result.assets.map(async (asset) => {
+          const manip = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 800 } }],
+            {
+              compress: 0.7,
+              format: ImageManipulator.SaveFormat.JPEG,
+            }
+          );
+          return manip.uri;
+        })
+      );
+
+      setJobForm((prev) => ({
+        ...prev,
+        images: [...prev.images, ...newImages],
+      }));
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Failed to pick images.");
+    } finally {
+      setJobImageUploading(false);
+    }
+  };
+
+  const handleRemoveJobImage = (index: number) => {
+    setJobForm((prev) => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleEditJob = (job: Job) => {
+    console.log("🎯 Editing job:", job);
+    console.log("🖼️ Job images field:", job.images);
+    console.log("🖼️ Job job_images field:", job.job_images);
+    
+    setEditingJob(job);
+    
+    // Extract image URLs - check both 'images' and 'job_images' fields
+    const imageArray = job.images || job.job_images || [];
+    const existingImages = imageArray.map(img => {
+      console.log("📸 Processing image:", img);
+      return img.image_url;
+    });
+    
+    console.log("✅ Final images array:", existingImages);
+    
+    setJobForm({
+      title: job.title,
+      description: job.description,
+      images: existingImages,
+    });
+    
+    setEditJobModalVisible(true);
+  };
+
+  const handleSaveJob = async () => {
+    if (!jobForm.title.trim()) {
+      Alert.alert("Error", "Job title is required");
+      return;
+    }
+
+    if (!jobForm.description.trim()) {
+      Alert.alert("Error", "Job description is required");
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert("Error", "User ID not found");
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      if (editingJob) {
+        // Update existing job
+        const { error: jobError } = await supabase
+          .from("jobs")
+          .update({
+            title: jobForm.title.trim(),
+            description: jobForm.description.trim(),
+          })
+          .eq("id", editingJob.id);
+
+        if (jobError) throw jobError;
+
+        // Delete old images
+        const { error: deleteError } = await supabase
+          .from("job_images")
+          .delete()
+          .eq("job_id", editingJob.id);
+
+        if (deleteError) throw deleteError;
+
+        // Insert new images
+        if (jobForm.images.length > 0) {
+          const imageInserts = jobForm.images.map((imageUri) => ({
+            job_id: editingJob.id,
+            image_url: imageUri,
+          }));
+
+          const { error: imageError } = await supabase
+            .from("job_images")
+            .insert(imageInserts);
+
+          if (imageError) throw imageError;
+        }
+
+        Alert.alert("Success", "Job updated successfully!");
+      } else {
+        // Create new job
+        const { data: jobData, error: jobError } = await supabase
+          .from("jobs")
+          .insert({
+            user_id: user.id,
+            title: jobForm.title.trim(),
+            description: jobForm.description.trim(),
+            status: "open",
+          })
+          .select()
+          .single();
+
+        if (jobError) throw jobError;
+
+        // Upload images if any
+        if (jobForm.images.length > 0) {
+          const imageInserts = jobForm.images.map((imageUri) => ({
+            job_id: jobData.id,
+            image_url: imageUri,
+          }));
+
+          const { error: imageError } = await supabase
+            .from("job_images")
+            .insert(imageInserts);
+
+          if (imageError) throw imageError;
+        }
+
+        Alert.alert("Success", "Job posted successfully!");
+      }
+
+      // Reset and close
+      setJobModalVisible(false);
+      setEditJobModalVisible(false);
+      setJobForm({ title: "", description: "", images: [] });
+      setEditingJob(null);
+      
+      // Reload jobs
+      await loadJobs();
+    } catch (error: any) {
+      console.error("Error saving job:", error);
+      Alert.alert("Error", error?.message || "Failed to save job");
+    } finally {
+      setUpdating(false);
+    }
+  };
+  
+  const handleDeleteJob = async (jobId: number) => {
+    Alert.alert(
+      "Delete Job",
+      "Are you sure you want to delete this job? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("jobs")
+                .delete()
+                .eq("id", jobId);
+
+              if (error) throw error;
+
+              Alert.alert("Success", "Job deleted successfully");
+              loadJobs();
+            } catch (error: any) {
+              console.error("Error deleting job:", error);
+              Alert.alert("Error", "Failed to delete job");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const displayName = React.useMemo(() => {
+    // Try to construct name from first_name and last_name
+    const profileFirstName = user?.first_name;
+    const profileLastName = user?.last_name;
+    const authFirstName = authUser?.first_name;
+    const authLastName = authUser?.last_name;
+    
+    // Build full name from first and last name
+    const profileFullName = [profileFirstName, profileLastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const authFullName = [authFirstName, authLastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    
+    // Fallback to other name fields if first/last name not available
     const profileName = user?.name || user?.user_name || user?.username;
-    const authName =
-      authUser?.user_name || authUser?.name || authUser?.username;
-    return profileName || authName || "User";
+    const authName = authUser?.user_name || authUser?.name || authUser?.username;
+    
+    return profileFullName || authFullName || profileName || authName || "User";
   }, [user, authUser]);
 
   const displayEmail = React.useMemo(() => {
@@ -213,7 +518,7 @@ const Profile = () => {
 
   const userId = React.useMemo(() => {
     const profileId = user?.user_id || user?.id;
-    const authId = authUser?.user_id || authUser?.id;
+    const authId = authUser?.user_id || authUser?.id
     return profileId || authId || "N/A";
   }, [user, authUser]);
 
@@ -229,6 +534,10 @@ const Profile = () => {
       deactiveValue === true || deactiveValue === 1 || deactiveValue === "1"
     );
   }, [user]);
+
+  const isArtisan = React.useMemo(() => {
+    return user?.role === "artisan" || userType === "artisan";
+  }, [user?.role, userType]);
 
   const loadProfile = async (forceApiUpdate = false) => {
     try {
@@ -288,6 +597,11 @@ const Profile = () => {
         role: mergedData?.role || "user",
         skills: mergedData?.skills || [],
       });
+
+      // Load jobs if artisan
+      if (mergedData?.role === "artisan") {
+        loadJobs();
+      }
     } catch (error: any) {
       console.log("❌ Profile API error:", error);
 
@@ -335,13 +649,6 @@ const Profile = () => {
       setRefreshing(false);
     }
   };
-
-  useEffect(() => {
-    console.log("🔍 Auth User from Redux:", authUser);
-    console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
-
-    loadProfile(false);
-  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -650,7 +957,6 @@ const Profile = () => {
       >
         {/* Stats Section */}
         <View style={styles.statsContainer}>
-          {/* Rating Display */}
           {(user?.average_rating !== undefined ||
             user?.rating !== undefined) && (
             <View style={styles.statItem}>
@@ -666,7 +972,6 @@ const Profile = () => {
               </Text>
             </View>
           )}
-          {/* Completed Projects */}
           {(user?.completed_projects !== undefined ||
             user?.completedProjects !== undefined) && (
             <View style={styles.statItem}>
@@ -678,7 +983,6 @@ const Profile = () => {
             </View>
           )}
 
-          {/* Profile Views (if artisan) */}
           {user?.views !== undefined && user?.role === "artisan" && (
             <View style={styles.statItem}>
               <Ionicons name="eye" size={24} color="#007AFF" />
@@ -687,6 +991,116 @@ const Profile = () => {
             </View>
           )}
         </View>
+
+        {/* Jobs Section - Only for Artisans */}
+        {isArtisan && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="briefcase-outline" size={20} color="#EE4710" />
+              <Text style={styles.sectionTitle}>My Jobs</Text>
+              <TouchableOpacity
+                style={styles.addJobButton}
+                onPress={() => {
+                  setEditingJob(null);
+                  setJobForm({ title: "", description: "", images: [] });
+                  setJobModalVisible(true);
+                }}
+              >
+                <Ionicons name="add-circle" size={24} color={primaryColor} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingJobs ? (
+              <ActivityIndicator size="small" color={primaryColor} />
+            ) : jobs.length === 0 ? (
+              <Text style={styles.noJobsText}>
+                No jobs posted yet. Tap + to add your first job!
+              </Text>
+            ) : (
+              <View style={styles.jobsList}>
+                {jobs.map((job) => (
+                  <View key={job.id} style={styles.jobCard}>
+                    {/* Images at the top */}
+                    {((job.images && job.images.length > 0) || (job.job_images && job.job_images.length > 0)) && (
+                      <View style={styles.jobImageContainer}>
+                        {(job.images || job.job_images || []).slice(0, 2).map((img, index) => (
+                          <TouchableOpacity 
+                            key={img.id || index}
+                            style={styles.jobImageWrapper}
+                          >
+                            <Image
+                              source={{ uri: img.image_url }}
+                              style={styles.jobCardImage}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* Content Section */}
+                    <View style={styles.jobContent}>
+                      <View style={styles.jobHeader}>
+                        <Text style={styles.jobTitle} numberOfLines={2}>
+                          {job.title}
+                        </Text>
+                        <View style={styles.jobActions}>
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              job.status === "open"
+                                ? styles.statusOpen
+                                : styles.statusClosed,
+                            ]}
+                          >
+                            <Text style={styles.statusText}>{job.status}</Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      <Text style={styles.jobDescription} numberOfLines={3}>
+                        {job.description}
+                      </Text>
+
+                      {/* Footer with date and actions */}
+                      <View style={styles.jobFooter}>
+                        <View style={styles.jobDateContainer}>
+                          <Ionicons name="calendar-outline" size={14} color="#6c757d" />
+                          <Text style={styles.jobDate}>
+                            {new Date(job.created_at).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        
+                        <View style={styles.jobActionButtons}>
+                          <TouchableOpacity
+                            onPress={() => handleEditJob(job)}
+                            style={styles.jobActionButton}
+                          >
+                            <Ionicons
+                              name="create-outline"
+                              size={20}
+                              color="#007AFF"
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteJob(job.id)}
+                            style={styles.jobActionButton}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={20}
+                              color="#DC3545"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Bio Section */}
         {user?.bio && (
@@ -828,7 +1242,6 @@ const Profile = () => {
             <Text style={styles.secondaryButtonText}>Settings</Text>
           </TouchableOpacity>
 
-          {/* Sync Button - Pull fresh data from server */}
           <TouchableOpacity
             style={styles.syncButton}
             onPress={() => {
@@ -851,14 +1264,6 @@ const Profile = () => {
             <Ionicons name="cloud-download-outline" size={20} color="#007AFF" />
             <Text style={styles.syncButtonText}>Sync from Server</Text>
           </TouchableOpacity>
-
-          {/* <TouchableOpacity
-          style={styles.outlineButton}
-          onPress={() => router.push("/(tabs)/home")}
-        >
-          <Ionicons name="home-outline" size={20} color="#666" />
-          <Text style={styles.outlineButtonText}>Back to Home</Text>
-        </TouchableOpacity> */}
 
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={20} color="#DC3545" />
@@ -895,6 +1300,272 @@ const Profile = () => {
             {isAccountDeactivated ? "Activate Account" : "Deactivate Account"}
           </Text>
         </TouchableOpacity>
+
+        {/* Add Job Modal */}
+        <Modal
+          visible={jobModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setJobModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Post a New Job</Text>
+                <TouchableOpacity
+                  onPress={() => setJobModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.inputLabel}>Job Title *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Professional Plumbing Services"
+                  placeholderTextColor="#999"
+                  value={jobForm.title}
+                  onChangeText={(text) =>
+                    setJobForm({ ...jobForm, title: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Description *</Text>
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Describe your services, experience, and what makes you stand out..."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={6}
+                  value={jobForm.description}
+                  onChangeText={(text) =>
+                    setJobForm({ ...jobForm, description: text })
+                  }
+                  textAlignVertical="top"
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>
+                  Images (Optional - Max 2)
+                </Text>
+                <TouchableOpacity
+                  style={styles.imagePickerButton}
+                  onPress={handlePickJobImages}
+                  disabled={jobImageUploading || jobForm.images.length >= 2}
+                >
+                  {jobImageUploading ? (
+                    <ActivityIndicator color={primaryColor} />
+                  ) : (
+                    <>
+                      <Ionicons name="images-outline" size={24} color={primaryColor} />
+                      <Text style={styles.imagePickerText}>
+                        {jobForm.images.length >= 2
+                          ? "Maximum images reached"
+                          : "Add Images"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {jobForm.images.length > 0 && (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.inputLabel, { marginBottom: 8 }]}>
+                      Selected Images ({jobForm.images.length}/2)
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.selectedImagesScroll}
+                    >
+                      {jobForm.images.map((imageUri, index) => {
+                        console.log("🖼️ Rendering image:", imageUri);
+                        return (
+                          <View key={index} style={styles.selectedImageContainer}>
+                            <Image
+                              source={{ uri: imageUri }}
+                              style={styles.selectedImage}
+                              resizeMode="cover"
+                              onError={(error) => console.log("❌ Image load error:", error.nativeEvent.error)}
+                              onLoad={() => console.log("✅ Image loaded:", imageUri)}
+                            />
+                            <TouchableOpacity
+                              style={styles.removeImageButton}
+                              onPress={() => handleRemoveJobImage(index)}
+                            >
+                              <Ionicons name="close-circle" size={24} color="#DC3545" />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setJobModalVisible(false);
+                      setJobForm({ title: "", description: "", images: [] });
+                    }}
+                    disabled={updating}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitButton, updating && { opacity: 0.7 }]}
+                    onPress={handleSaveJob}
+                    disabled={updating}
+                  >
+                    {updating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>Post Job</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Edit Job Modal */}
+        <Modal
+          visible={editJobModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => {
+            setEditJobModalVisible(false);
+            setEditingJob(null);
+            setJobForm({ title: "", description: "", images: [] });
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Job</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setEditJobModalVisible(false);
+                    setEditingJob(null);
+                    setJobForm({ title: "", description: "", images: [] });
+                  }}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.inputLabel}>Job Title *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Professional Plumbing Services"
+                  placeholderTextColor="#999"
+                  value={jobForm.title}
+                  onChangeText={(text) =>
+                    setJobForm({ ...jobForm, title: text })
+                  }
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>Description *</Text>
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Describe your services, experience, and what makes you stand out..."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={6}
+                  value={jobForm.description}
+                  onChangeText={(text) =>
+                    setJobForm({ ...jobForm, description: text })
+                  }
+                  textAlignVertical="top"
+                  editable={!updating}
+                />
+
+                <Text style={styles.inputLabel}>
+                  Images (Optional - Max 2)
+                </Text>
+                <TouchableOpacity
+                  style={styles.imagePickerButton}
+                  onPress={handlePickJobImages}
+                  disabled={jobImageUploading || jobForm.images.length >= 2}
+                >
+                  {jobImageUploading ? (
+                    <ActivityIndicator color={primaryColor} />
+                  ) : (
+                    <>
+                      <Ionicons name="images-outline" size={24} color={primaryColor} />
+                      <Text style={styles.imagePickerText}>
+                        {jobForm.images.length >= 2
+                          ? "Maximum images reached"
+                          : "Add Images"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {jobForm.images.length > 0 && (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.inputLabel, { marginBottom: 8 }]}>
+                      Selected Images ({jobForm.images.length}/2)
+                    </Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.selectedImagesScroll}
+                    >
+                      {jobForm.images.map((imageUri, index) => (
+                        <View key={index} style={styles.selectedImageContainer}>
+                          <Image
+                            source={{ uri: imageUri }}
+                            style={styles.selectedImage}
+                            resizeMode="cover"
+                          />
+                          <TouchableOpacity
+                            style={styles.removeImageButton}
+                            onPress={() => handleRemoveJobImage(index)}
+                          >
+                            <Ionicons name="close-circle" size={24} color="#DC3545" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setEditJobModalVisible(false);
+                      setEditingJob(null);
+                      setJobForm({ title: "", description: "", images: [] });
+                    }}
+                    disabled={updating}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitButton, updating && { opacity: 0.7 }]}
+                    onPress={handleSaveJob}
+                    disabled={updating}
+                  >
+                    {updating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>Update Job</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
         {/* Edit Profile Modal */}
         <Modal
@@ -1068,7 +1739,6 @@ const Profile = () => {
                     onValueChange={async (value) => {
                       const newRole = value ? "artisan" : "user";
                       setEditForm({ ...editForm, role: newRole });
-                      // Immediately update in database
                       if (user?.id) {
                         setUpdating(true);
                         const res = await updateProfileById(user.id, {
@@ -1141,7 +1811,6 @@ const Profile = () => {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Password Section */}
                 <Text style={styles.sectionTitleModal}>Change Password</Text>
 
                 <Text style={styles.inputLabel}>Current Password *</Text>
@@ -1199,49 +1868,6 @@ const Profile = () => {
                   )}
                 </TouchableOpacity>
 
-                {/* Notifications Section */}
-                <Text style={styles.sectionTitleModal}>Notifications</Text>
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <Ionicons name="mail-outline" size={20} color="#666" />
-                    <Text style={styles.settingLabel}>Email Notifications</Text>
-                  </View>
-                  <Switch
-                    value={settingsForm.emailNotifications}
-                    onValueChange={(value) =>
-                      setSettingsForm({
-                        ...settingsForm,
-                        emailNotifications: value,
-                      })
-                    }
-                    trackColor={{ false: "#ddd", true: "#EE4710" }}
-                    thumbColor="#fff"
-                  />
-                </View>
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <Ionicons
-                      name="notifications-outline"
-                      size={20}
-                      color="#666"
-                    />
-                    <Text style={styles.settingLabel}>Push Notifications</Text>
-                  </View>
-                  <Switch
-                    value={settingsForm.pushNotifications}
-                    onValueChange={(value) =>
-                      setSettingsForm({
-                        ...settingsForm,
-                        pushNotifications: value,
-                      })
-                    }
-                    trackColor={{ false: "#ddd", true: "#EE4710" }}
-                    thumbColor="#fff"
-                  />
-                </View>
-
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={styles.cancelButton}
@@ -1286,7 +1912,6 @@ const styles = StyleSheet.create({
   },
   scrollContentContainer: {
     paddingBottom: 30,
-    // marginBottom: 40,
   },
   loadingContainer: {
     flex: 1,
@@ -1422,6 +2047,131 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#212529",
     marginLeft: 8,
+    flex: 1,
+  },
+  addJobButton: {
+    padding: 4,
+  },
+  noJobsText: {
+    fontSize: 15,
+    color: "#6c757d",
+    fontStyle: "italic",
+    textAlign: "center",
+    paddingVertical: 20,
+  },
+  jobsList: {
+    gap: 16,
+  },
+  jobCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  jobImageContainer: {
+    flexDirection: "row",
+    height: 180,
+    backgroundColor: "#F8F9FA",
+  },
+  jobImageWrapper: {
+    flex: 1,
+    borderRightWidth: 1,
+    borderRightColor: "#fff",
+  },
+  jobCardImage: {
+    width: "100%",
+    height: "100%",
+  },
+  jobContent: {
+    padding: 16,
+  },
+  jobHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 12,
+  },
+  jobTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#212529",
+    flex: 1,
+    marginRight: 12,
+    lineHeight: 24,
+  },
+  jobActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  jobDescription: {
+    fontSize: 14,
+    color: "#6c757d",
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  jobFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E9ECEF",
+  },
+  jobDateContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  jobDate: {
+    fontSize: 13,
+    color: "#6c757d",
+  },
+  jobActionButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  jobActionButton: {
+    padding: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  statusOpen: {
+    backgroundColor: "#D1FAE5",
+  },
+  statusClosed: {
+    backgroundColor: "#FEE2E2",
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: "#065F46",
+  },
+  jobDescription: {
+    fontSize: 14,
+    color: "#6c757d",
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  jobImagesScroll: {
+    marginVertical: 8,
+  },
+  jobImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 8,
   },
   bioText: {
     fontSize: 15,
@@ -1537,22 +2287,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-  outlineButton: {
-    flexDirection: "row",
-    backgroundColor: "transparent",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#dee2e6",
-  },
-  outlineButtonText: {
-    color: "#666",
-    fontWeight: "600",
-    fontSize: 16,
-  },
   logoutButton: {
     flexDirection: "row",
     backgroundColor: "#FFF5F5",
@@ -1613,6 +2347,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#C6F6D5",
     marginTop: 8,
+    marginBottom: 70,
   },
   activateButtonText: {
     color: "#28a745",
@@ -1678,6 +2413,40 @@ const styles = StyleSheet.create({
     minHeight: 100,
     backgroundColor: "#F4F4FB",
   },
+  imagePickerButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: secondaryColor,
+    padding: 14,
+    borderRadius: 12,
+    gap: 8,
+    marginBottom: 12,
+  },
+  imagePickerText: {
+    color: primaryColor,
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  selectedImagesScroll: {
+    marginBottom: 12,
+  },
+  selectedImageContainer: {
+    position: "relative",
+    marginRight: 8,
+  },
+  selectedImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+  },
   modalButtons: {
     flexDirection: "row",
     marginTop: 20,
@@ -1714,24 +2483,5 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     marginTop: 10,
     marginBottom: 15,
-  },
-  settingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
-  },
-  settingInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  settingLabel: {
-    fontSize: 15,
-    color: "#1A1A1A",
-    marginLeft: 12,
-    fontWeight: "500",
   },
 });
