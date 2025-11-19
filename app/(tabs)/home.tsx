@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx
+// app/(tabs)/home.tsx - IMPROVED VERSION
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useMemo, useRef } from "react";
@@ -41,7 +41,10 @@ import {
   getOpenJobs,
   submitProposal,
   hasUserProposed,
-  getUnreadNotificationCount as getJobNotificationCount,
+  getUnreadNotificationCount,
+  getNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
 } from "@/services/jobs";
 import { getProfileById } from "@/services/login";
 
@@ -61,22 +64,32 @@ interface Job {
   created_at: string;
   deadline: string | null;
   category: string | null;
+  proposal_count?: number;
   client?: {
     id: string;
     first_name: string;
     last_name: string;
-    avatar_url: string | null;
+    avatar: string | null;
   };
+}
+
+interface Notification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  related_id: string | null;
+  is_read: boolean;
+  created_at: string;
 }
 
 const Home = () => {
   const router = useRouter();
   const user = useSelector((state: any) => state.auth.user);
 
-  // Get time-based greeting
   const getTimeBasedGreeting = () => {
     const hour = new Date().getHours();
-
     if (hour >= 5 && hour < 12) {
       return { greeting: "Good Morning", emoji: "🌅" };
     } else if (hour >= 12 && hour < 17) {
@@ -90,26 +103,17 @@ const Home = () => {
 
   const { greeting, emoji } = getTimeBasedGreeting();
 
-  // Compute display name from available fields
   const displayName = useMemo(() => {
     if (!user) return "Guest";
     if (typeof user === "string") return user;
-
-    // Try username first
     const username = user.username || user.user_name || user.userName;
     if (username) return username;
-
-    // Fall back to name field
     const name = user.name;
     if (name) return name;
-
-    // Try first_name + last_name as fallback
     const first = user.first_name || user.firstName || user.first;
     const last = user.last_name || user.lastName || user.last;
     const full = `${first || ""} ${last || ""}`.trim();
     if (full) return full;
-
-    // Last resort: email or "User"
     return user.email?.split("@")[0] || "User";
   }, [user]);
 
@@ -132,15 +136,18 @@ const Home = () => {
   // Messages State
   const [messagesModalVisible, setMessagesModalVisible] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
+  // Notifications State
+  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+
   // Conversation View State
-  const [selectedConversation, setSelectedConversation] =
-    useState<Conversation | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<Message[]>(
-    []
-  );
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -151,26 +158,31 @@ const Home = () => {
   const [viewedProfile, setViewedProfile] = useState<any>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
 
-  // Fetch jobs from Supabase
+  // Job Details Modal State
+  const [jobDetailsModalVisible, setJobDetailsModalVisible] = useState(false);
+  const [selectedJobDetails, setSelectedJobDetails] = useState<Job | null>(null);
+
+  const [hasProposed, setHasProposed] = useState(false);
+  const [checkingProposal, setCheckingProposal] = useState(false);
+
+  // Fetch jobs
   const fetchJobs = async () => {
     try {
       setLoading(true);
 
-      // Fetch tasks
-      const tasksRes = await getOpenJobs({ job_type: "task", limit: 10 });
-      if (tasksRes.success && tasksRes.data) {
-        setTasks(tasksRes.data);
+      const allJobsRes = await getOpenJobs({ limit: 50 });
+      
+      if (allJobsRes.success && allJobsRes.data) {
+        const tasksData = allJobsRes.data.filter(job => job.job_type === "task");
+        const projectsData = allJobsRes.data.filter(job => 
+          !job.job_type || job.job_type === "project"
+        );
+        
+        setTasks(tasksData);
+        setProjects(projectsData);
       } else {
-        console.error("Error fetching tasks:", tasksRes.error);
+        console.error("Error fetching jobs:", allJobsRes.error);
         setTasks([]);
-      }
-
-      // Fetch projects
-      const projectsRes = await getOpenJobs({ job_type: "project", limit: 10 });
-      if (projectsRes.success && projectsRes.data) {
-        setProjects(projectsRes.data);
-      } else {
-        console.error("Error fetching projects:", projectsRes.error);
         setProjects([]);
       }
     } catch (error) {
@@ -181,20 +193,15 @@ const Home = () => {
     }
   };
 
-  // Fetch conversations list
+  // Fetch conversations
   const fetchConversations = async () => {
-    if (!user?.id) {
-      console.log("No user ID, cannot fetch conversations");
-      return;
-    }
-
+    if (!user?.id) return;
     try {
       setLoadingMessages(true);
       const res = await getConversationsList(user.id);
       if (res.success && res.data) {
         setConversations(res.data);
       } else {
-        console.error("Failed to fetch conversations:", res.error);
         setConversations([]);
       }
     } catch (error) {
@@ -205,31 +212,45 @@ const Home = () => {
     }
   };
 
+  // Fetch notifications
+  const fetchNotifications = async () => {
+    if (!user?.id) return;
+    try {
+      setLoadingNotifications(true);
+      const res = await getNotifications(user.id);
+      if (res.success && res.data) {
+        setNotifications(res.data);
+      } else {
+        setNotifications([]);
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      setNotifications([]);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
   // Fetch conversation messages
   const fetchConversationMessages = async (otherUserId: string) => {
     if (!user?.id) return;
-
     try {
       setLoadingConversation(true);
       const res = await getConversation(user.id, otherUserId);
       if (res.success && res.data) {
         setConversationMessages(res.data);
-        // Mark all unread messages as read
         const unreadMessages = res.data.filter(
           (msg) => msg.receiver_id === user.id && !msg.is_read && !msg.read_at
         );
         for (const msg of unreadMessages) {
           await markMessageAsRead(msg.id);
         }
-        // Refresh conversations and unread count
         fetchConversations();
-        fetchUnreadCount();
-        // Scroll to bottom after a short delay
+        fetchUnreadCounts();
         setTimeout(() => {
           chatScrollViewRef.current?.scrollToEnd({ animated: true });
         }, 100);
       } else {
-        console.error("Failed to fetch conversation:", res.error);
         setConversationMessages([]);
       }
     } catch (error) {
@@ -240,32 +261,27 @@ const Home = () => {
     }
   };
 
-  const [hasProposed, setHasProposed] = useState(false);
-  const [checkingProposal, setCheckingProposal] = useState(false);
-
-  // Fetch unread count
-  const fetchUnreadCount = async () => {
+  // Fetch unread counts
+  const fetchUnreadCounts = async () => {
     if (!user?.id) {
-      setUnreadCount(0);
+      setMessageUnreadCount(0);
+      setNotificationUnreadCount(0);
       return;
     }
 
     try {
-      // Fetch message unread count
       const messageRes = await getUnreadMessageCount(user.id);
       const messageCount = messageRes.success ? messageRes.count || 0 : 0;
+      setMessageUnreadCount(messageCount);
 
-      // Fetch notification unread count
-      const notifRes = await getJobNotificationCount(user.id);
+      const notifRes = await getUnreadNotificationCount(user.id);
       const notifCount = notifRes.success ? notifRes.count || 0 : 0;
+      setNotificationUnreadCount(notifCount);
 
-      // Combined count
-      const totalCount = messageCount + notifCount;
-      console.log("Total unread count (messages + notifications):", totalCount);
-      setUnreadCount(totalCount);
+      console.log("📬 Unread messages:", messageCount);
+      console.log("🔔 Unread notifications:", notifCount);
     } catch (error) {
-      console.error("Error fetching unread count:", error);
-      setUnreadCount(0);
+      console.error("Error fetching unread counts:", error);
     }
   };
 
@@ -274,6 +290,12 @@ const Home = () => {
     setMessagesModalVisible(true);
     setSelectedConversation(null);
     fetchConversations();
+  };
+
+  // Open notifications modal
+  const openNotificationsModal = () => {
+    setNotificationsModalVisible(true);
+    fetchNotifications();
   };
 
   // Open conversation
@@ -303,11 +325,9 @@ const Home = () => {
     }
   };
 
-  // Send message in conversation
+  // Send message
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedConversation || !user?.id) {
-      return;
-    }
+    if (!messageText.trim() || !selectedConversation || !user?.id) return;
 
     setSendingMessage(true);
     try {
@@ -319,12 +339,9 @@ const Home = () => {
 
       if (res.success) {
         setMessageText("");
-        // Refresh conversation messages
         await fetchConversationMessages(selectedConversation.userId);
-        // Refresh conversations list
         fetchConversations();
-        fetchUnreadCount();
-        // Scroll to bottom
+        fetchUnreadCounts();
         setTimeout(() => {
           chatScrollViewRef.current?.scrollToEnd({ animated: true });
         }, 100);
@@ -339,20 +356,57 @@ const Home = () => {
     }
   };
 
+  // Handle notification click
+  const handleNotificationClick = async (notification: Notification) => {
+    // Mark as read
+    await markNotificationAsRead(notification.id);
+    fetchNotifications();
+    fetchUnreadCounts();
+
+    // Close modal first
+    setNotificationsModalVisible(false);
+
+    // Navigate based on type
+    if (notification.type === "proposal" && notification.related_id) {
+      // Navigate to job proposals screen (for job owners)
+      setTimeout(() => {
+        router.push(`/job/${notification.related_id}`);
+      }, 300);
+    } else if (notification.type === "proposal_accepted" || notification.type === "proposal_rejected") {
+      // Navigate to my proposals screen (for artisans)
+      setTimeout(() => {
+        router.push("/(tabs)/proposals");
+      }, 300);
+    }
+  };
+
+  // Mark all notifications as read
+  const handleMarkAllNotificationsRead = async () => {
+    if (!user?.id) return;
+    await markAllNotificationsAsRead(user.id);
+    fetchNotifications();
+    fetchUnreadCounts();
+  };
+
+  // View job details
+  const handleViewJobDetails = (job: Job) => {
+    setSelectedJobDetails(job);
+    setJobDetailsModalVisible(true);
+  };
+
   useEffect(() => {
     fetchJobs();
-    fetchUnreadCount();
-    // Refresh unread count every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
+    fetchUnreadCounts();
+    const interval = setInterval(fetchUnreadCounts, 30000);
     return () => clearInterval(interval);
   }, [user?.id]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchJobs();
+    fetchUnreadCounts();
   };
 
-  // Format budget display
   const formatBudget = (job: Job) => {
     if (job.budget_type === "hourly") {
       if (job.budget_min && job.budget_max) {
@@ -371,7 +425,6 @@ const Home = () => {
     }
   };
 
-  // Format date
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -385,27 +438,20 @@ const Home = () => {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // Handle apply
   const handleApply = async (job: Job) => {
     if (!user?.id) {
-      Alert.alert(
-        "Authentication Required",
-        "Please sign in to apply for jobs"
-      );
+      Alert.alert("Authentication Required", "Please sign in to apply for jobs");
       return;
     }
 
-    // Check if user has already proposed
     setCheckingProposal(true);
     const checkRes = await hasUserProposed(user.id, job.id);
     setCheckingProposal(false);
 
     if (checkRes.hasProposed) {
-      Alert.alert(
-        "Already Applied",
-        "You have already submitted a proposal for this job.",
-        [{ text: "OK" }]
-      );
+      Alert.alert("Already Applied", "You have already submitted a proposal for this job.", [
+        { text: "OK" },
+      ]);
       return;
     }
 
@@ -416,20 +462,12 @@ const Home = () => {
 
   const submitApplication = async () => {
     if (!applicationData.coverLetter.trim()) {
-      Alert.alert(
-        "Required Field",
-        "Please write a cover letter explaining why you're the best fit"
-      );
+      Alert.alert("Required Field", "Please write a cover letter");
       return;
     }
 
-    if (!user?.id) {
-      Alert.alert("Authentication Required", "Please sign in to apply");
-      return;
-    }
-
-    if (!selectedJob?.id) {
-      Alert.alert("Error", "No job selected");
+    if (!user?.id || !selectedJob?.id) {
+      Alert.alert("Error", "Missing user or job information");
       return;
     }
 
@@ -447,17 +485,8 @@ const Home = () => {
       if (proposalRes.success) {
         Alert.alert(
           "Success! 🎉",
-          "Your proposal has been submitted successfully. The job owner will be notified and will review your application.",
+          "Your proposal has been submitted successfully. The job owner will be notified.",
           [
-            {
-              text: "View My Proposals",
-              onPress: () => {
-                setApplyModalVisible(false);
-                setApplicationData({ coverLetter: "", proposedPrice: "" });
-                // Navigate to proposals screen if you have one
-                // router.push("/proposals");
-              },
-            },
             {
               text: "OK",
               onPress: () => {
@@ -468,122 +497,33 @@ const Home = () => {
           ]
         );
       } else {
-        // Handle duplicate proposal error
         if (
           proposalRes.error?.includes("duplicate") ||
           proposalRes.error?.includes("unique")
         ) {
-          Alert.alert(
-            "Already Applied",
-            "You have already submitted a proposal for this job."
-          );
+          Alert.alert("Already Applied", "You have already submitted a proposal for this job.");
         } else {
-          Alert.alert(
-            "Error",
-            proposalRes.error || "Failed to submit proposal. Please try again."
-          );
+          Alert.alert("Error", proposalRes.error || "Failed to submit proposal.");
         }
       }
     } catch (error: any) {
       console.error("Error submitting proposal:", error);
-      Alert.alert("Error", "Failed to submit proposal. Please try again.");
+      Alert.alert("Error", "Failed to submit proposal.");
     } finally {
       setApplying(false);
     }
   };
-  // Render task card
-  const renderTaskCard = ({ item }: { item: Job }) => (
-    <TouchableOpacity
-      style={styles.taskCard}
-      activeOpacity={0.7}
-      onPress={() => router.push(`/task/${item.id}`)}
-    >
-      <View style={styles.taskContent}>
-        {/* Header */}
-        <View style={styles.taskHeader}>
-          <Text style={styles.taskDate}>{formatDate(item.created_at)}</Text>
-          {item.category && (
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{item.category}</Text>
-            </View>
-          )}
-        </View>
 
-        {/* Title */}
-        <Text style={styles.taskTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-
-        {/* Description */}
-        <Text style={styles.taskDescription} numberOfLines={3}>
-          {item.description}
-        </Text>
-
-        {/* Skills */}
-        {item.skills && item.skills.length > 0 && (
-          <View style={styles.skillsContainer}>
-            {item.skills.slice(0, 3).map((skill, index) => (
-              <View key={index} style={styles.skillTag}>
-                <Text style={styles.skillText}>{skill}</Text>
-              </View>
-            ))}
-            {item.skills.length > 3 && (
-              <View style={styles.skillTag}>
-                <Text style={styles.skillText}>+{item.skills.length - 3}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Footer */}
-        <View style={styles.taskFooter}>
-          <View style={styles.clientInfo}>
-            {item.client?.avatar_url ? (
-              <Image
-                source={{ uri: item.client.avatar_url }}
-                style={styles.clientAvatar}
-              />
-            ) : (
-              <View style={[styles.clientAvatar, styles.avatarPlaceholder]}>
-                <Ionicons name="person" size={14} color="#999" />
-              </View>
-            )}
-            <Text style={styles.clientName}>
-              {item.client
-                ? `${item.client.first_name} ${item.client.last_name}`
-                : "Anonymous"}
-            </Text>
-          </View>
-          <Text style={styles.taskPrice}>{formatBudget(item)}</Text>
-        </View>
-
-        {/* Apply Button */}
-        <TouchableOpacity
-          style={styles.applyButton}
-          onPress={(e) => {
-            e.stopPropagation();
-            handleApply(item);
-          }}
-        >
-          <Text style={styles.applyButtonText}>Apply Now</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
-
-  // Render project card
+  // Render job card with more details
   const renderProjectCard = ({ item }: { item: Job }) => (
     <TouchableOpacity
       style={styles.projectCard}
       activeOpacity={0.7}
-      onPress={() => router.push(`/project/${item.id}`)}
+      onPress={() => handleViewJobDetails(item)}
     >
-      {/* Header */}
       <View style={styles.projectCardHeader}>
         <View style={styles.projectHeaderLeft}>
-          <Text style={styles.projectPostedDate}>
-            {formatDate(item.created_at)}
-          </Text>
+          <Text style={styles.projectPostedDate}>{formatDate(item.created_at)}</Text>
           {item.location && (
             <View style={styles.locationBadge}>
               <Ionicons name="location" size={10} color="#7A50EC" />
@@ -591,62 +531,52 @@ const Home = () => {
             </View>
           )}
         </View>
+        {item.proposal_count !== undefined && item.proposal_count > 0 && (
+          <View style={styles.proposalsBadge}>
+            <Ionicons name="people" size={12} color="#666" />
+            <Text style={styles.proposalsText}>{item.proposal_count}</Text>
+          </View>
+        )}
       </View>
 
-      {/* Title */}
       <Text style={styles.projectTitle} numberOfLines={2}>
         {item.title}
       </Text>
 
-      {/* Description */}
       <Text style={styles.projectDescription} numberOfLines={3}>
         {item.description}
       </Text>
 
-      {/* Meta Information */}
-      <View style={styles.projectMetaRow}>
-        {item.deadline && (
+      {item.deadline && (
+        <View style={styles.projectMetaRow}>
           <View style={styles.projectMetaItem}>
             <Ionicons name="time-outline" size={14} color="#FF6B6B" />
             <Text style={[styles.projectMetaText, { color: "#FF6B6B" }]}>
               Due: {formatDate(item.deadline)}
             </Text>
           </View>
-        )}
-        {item.category && (
-          <View style={styles.projectMetaItem}>
-            <Ionicons name="briefcase-outline" size={14} color="#912018" />
-            <Text style={[styles.projectMetaText, { color: "#912018" }]}>
-              {item.category}
-            </Text>
-          </View>
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* Skills */}
       {item.skills && item.skills.length > 0 && (
         <View style={styles.skillsContainer}>
-          {item.skills.slice(0, 4).map((skill, index) => (
+          {item.skills.slice(0, 3).map((skill, index) => (
             <View key={index} style={styles.skillTag}>
               <Text style={styles.skillText}>{skill}</Text>
             </View>
           ))}
-          {item.skills.length > 4 && (
+          {item.skills.length > 3 && (
             <View style={styles.skillTag}>
-              <Text style={styles.skillText}>+{item.skills.length - 4}</Text>
+              <Text style={styles.skillText}>+{item.skills.length - 3}</Text>
             </View>
           )}
         </View>
       )}
 
-      {/* Footer */}
       <View style={styles.projectFooter}>
         <View style={styles.authorSection}>
-          {item.client?.avatar_url ? (
-            <Image
-              source={{ uri: item.client.avatar_url }}
-              style={styles.authorAvatar}
-            />
+          {item.client?.avatar ? (
+            <Image source={{ uri: item.client.avatar }} style={styles.authorAvatar} />
           ) : (
             <View style={[styles.authorAvatar, styles.avatarPlaceholder]}>
               <Ionicons name="person" size={16} color="#999" />
@@ -664,13 +594,12 @@ const Home = () => {
 
         <View style={styles.priceSection}>
           <Text style={styles.projectType}>
-            {item.budget_type === "fixed" ? "Fixed Price" : "Hourly Rate"}
+            {item.budget_type === "fixed" ? "Fixed" : "Hourly"}
           </Text>
           <Text style={styles.projectPrice}>{formatBudget(item)}</Text>
         </View>
       </View>
 
-      {/* Apply Button */}
       <TouchableOpacity
         style={styles.applyButton}
         onPress={(e) => {
@@ -678,20 +607,17 @@ const Home = () => {
           handleApply(item);
         }}
       >
-        <Text style={styles.applyButtonText}>Submit Proposal</Text>
+        <Text style={styles.applyButtonText}>Apply Now</Text>
         <Ionicons name="arrow-forward" size={16} color={whiteColor} />
       </TouchableOpacity>
     </TouchableOpacity>
   );
 
-  // Empty component
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
       <Ionicons name="briefcase-outline" size={64} color="#ccc" />
       <Text style={styles.emptyText}>No {activeTab} available</Text>
-      <Text style={styles.emptySubtext}>
-        Check back later for new opportunities
-      </Text>
+      <Text style={styles.emptySubtext}>Check back later for new opportunities</Text>
     </View>
   );
 
@@ -706,7 +632,7 @@ const Home = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      {/* Header with Time-based Greeting */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>
@@ -714,36 +640,39 @@ const Home = () => {
           </Text>
           <Text style={styles.subtitle}>Find your next opportunity</Text>
         </View>
-        <TouchableOpacity
-          style={styles.messageIconButton}
-          onPress={openMessagesModal}
-        >
-          <Ionicons
-            name="chatbubble-ellipses-outline"
-            size={24}
-            color={fontColor}
-          />
-          {unreadCount > 0 && (
-            <View style={styles.messageBadge}>
-              <Text style={styles.messageBadgeText}>
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerIcons}>
+          {/* Messages Icon */}
+          <TouchableOpacity style={styles.iconButton} onPress={openMessagesModal}>
+            <Ionicons name="chatbubble-ellipses-outline" size={24} color={fontColor} />
+            {messageUnreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {messageUnreadCount > 99 ? "99+" : messageUnreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Notifications Icon */}
+          <TouchableOpacity style={styles.iconButton} onPress={openNotificationsModal}>
+            <Ionicons name="notifications-outline" size={24} color={fontColor} />
+            {notificationUnreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons
-          name="search"
-          size={20}
-          color="#999"
-          style={styles.searchIcon}
-        />
+        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search for tasks or projects..."
+          placeholder="Search for jobs..."
           placeholderTextColor="#999"
         />
         <TouchableOpacity style={styles.filterButton}>
@@ -757,12 +686,7 @@ const Home = () => {
           style={[styles.tab, activeTab === "tasks" && styles.activeTab]}
           onPress={() => setActiveTab("tasks")}
         >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === "tasks" && styles.activeTabText,
-            ]}
-          >
+          <Text style={[styles.tabText, activeTab === "tasks" && styles.activeTabText]}>
             Tasks ({tasks.length})
           </Text>
         </TouchableOpacity>
@@ -770,12 +694,7 @@ const Home = () => {
           style={[styles.tab, activeTab === "projects" && styles.activeTab]}
           onPress={() => setActiveTab("projects")}
         >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === "projects" && styles.activeTabText,
-            ]}
-          >
+          <Text style={[styles.tabText, activeTab === "projects" && styles.activeTabText]}>
             Projects ({projects.length})
           </Text>
         </TouchableOpacity>
@@ -784,15 +703,130 @@ const Home = () => {
       {/* Content */}
       <FlatList
         data={activeTab === "tasks" ? tasks : projects}
-        renderItem={activeTab === "tasks" ? renderTaskCard : renderProjectCard}
+        renderItem={renderProjectCard}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={renderEmpty}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
+
+      {/* Job Details Modal */}
+      <Modal
+        visible={jobDetailsModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setJobDetailsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailsModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Job Details</Text>
+              <TouchableOpacity
+                onPress={() => setJobDetailsModalVisible(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedJobDetails && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.detailsHeader}>
+                  <Text style={styles.detailsTitle}>{selectedJobDetails.title}</Text>
+                  <Text style={styles.detailsPrice}>{formatBudget(selectedJobDetails)}</Text>
+                </View>
+
+                <View style={styles.detailsMeta}>
+                  <View style={styles.detailsMetaItem}>
+                    <Ionicons name="calendar-outline" size={16} color="#666" />
+                    <Text style={styles.detailsMetaText}>
+                      Posted {formatDate(selectedJobDetails.created_at)}
+                    </Text>
+                  </View>
+                  {selectedJobDetails.location && (
+                    <View style={styles.detailsMetaItem}>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.detailsMetaText}>{selectedJobDetails.location}</Text>
+                    </View>
+                  )}
+                  {selectedJobDetails.proposal_count !== undefined && (
+                    <View style={styles.detailsMetaItem}>
+                      <Ionicons name="people-outline" size={16} color="#666" />
+                      <Text style={styles.detailsMetaText}>
+                        {selectedJobDetails.proposal_count} proposals
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.detailsSection}>
+                  <Text style={styles.detailsSectionTitle}>Description</Text>
+                  <Text style={styles.detailsDescription}>{selectedJobDetails.description}</Text>
+                </View>
+
+                {selectedJobDetails.skills && selectedJobDetails.skills.length > 0 && (
+                  <View style={styles.detailsSection}>
+                    <Text style={styles.detailsSectionTitle}>Required Skills</Text>
+                    <View style={styles.skillsContainer}>
+                      {selectedJobDetails.skills.map((skill, index) => (
+                        <View key={index} style={styles.skillTag}>
+                          <Text style={styles.skillText}>{skill}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {selectedJobDetails.deadline && (
+                  <View style={styles.detailsSection}>
+                    <Text style={styles.detailsSectionTitle}>Deadline</Text>
+                    <View style={styles.detailsMetaItem}>
+                      <Ionicons name="time-outline" size={16} color="#FF6B6B" />
+                      <Text style={[styles.detailsMetaText, { color: "#FF6B6B" }]}>
+                        {formatDate(selectedJobDetails.deadline)}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {selectedJobDetails.client && (
+                  <View style={styles.detailsSection}>
+                    <Text style={styles.detailsSectionTitle}>Client</Text>
+                    <View style={styles.clientDetails}>
+                      {selectedJobDetails.client.avatar ? (
+                        <Image
+                          source={{ uri: selectedJobDetails.client.avatar }}
+                          style={styles.clientDetailsAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.clientDetailsAvatar, styles.avatarPlaceholder]}>
+                          <Ionicons name="person" size={24} color="#999" />
+                        </View>
+                      )}
+                      <Text style={styles.clientDetailsName}>
+                        {selectedJobDetails.client.first_name}{" "}
+                        {selectedJobDetails.client.last_name}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.applyButtonLarge}
+                  onPress={() => {
+                    setJobDetailsModalVisible(false);
+                    handleApply(selectedJobDetails);
+                  }}
+                >
+                  <Text style={styles.applyButtonText}>Apply for this Job</Text>
+                  <Ionicons name="arrow-forward" size={20} color={whiteColor} />
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Apply Modal */}
       <Modal
@@ -819,22 +853,7 @@ const Home = () => {
                   <Text style={styles.jobPreviewTitle} numberOfLines={2}>
                     {selectedJob.title}
                   </Text>
-                  <Text style={styles.jobPreviewBudget}>
-                    {formatBudget(selectedJob)}
-                  </Text>
-                  {selectedJob.proposal_count !== undefined &&
-                    selectedJob.proposal_count > 0 && (
-                      <View style={styles.proposalCountBadge}>
-                        <Ionicons name="people" size={14} color="#666" />
-                        <Text style={styles.proposalCountText}>
-                          {selectedJob.proposal_count}{" "}
-                          {selectedJob.proposal_count === 1
-                            ? "proposal"
-                            : "proposals"}{" "}
-                          submitted
-                        </Text>
-                      </View>
-                    )}
+                  <Text style={styles.jobPreviewBudget}>{formatBudget(selectedJob)}</Text>
                 </View>
               )}
 
@@ -860,10 +879,7 @@ const Home = () => {
                 keyboardType="numeric"
                 value={applicationData.proposedPrice}
                 onChangeText={(text) =>
-                  setApplicationData({
-                    ...applicationData,
-                    proposedPrice: text,
-                  })
+                  setApplicationData({ ...applicationData, proposedPrice: text })
                 }
               />
 
@@ -892,6 +908,84 @@ const Home = () => {
         </View>
       </Modal>
 
+      {/* Notifications Modal */}
+      <Modal
+        visible={notificationsModalVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setNotificationsModalVisible(false)}
+      >
+        <SafeAreaView style={styles.messagesSafeArea}>
+          <View style={styles.messagesHeader}>
+            <TouchableOpacity
+              onPress={() => setNotificationsModalVisible(false)}
+              style={styles.backButton}
+            >
+              <Ionicons name="arrow-back" size={24} color={fontColor} />
+            </TouchableOpacity>
+            <Text style={styles.messagesHeaderTitle}>Notifications</Text>
+            <TouchableOpacity
+              onPress={handleMarkAllNotificationsRead}
+              style={styles.refreshButton}
+            >
+              <Ionicons name="checkmark-done" size={24} color={primaryColor} />
+            </TouchableOpacity>
+          </View>
+
+          {loadingNotifications ? (
+            <View style={styles.messagesLoadingContainer}>
+              <ActivityIndicator size="large" color={primaryColor} />
+              <Text style={styles.loadingText}>Loading notifications...</Text>
+            </View>
+          ) : notifications.length === 0 ? (
+            <View style={styles.emptyMessagesContainer}>
+              <Ionicons name="notifications-outline" size={64} color="#ccc" />
+              <Text style={styles.emptyMessagesText}>No notifications</Text>
+              <Text style={styles.emptyMessagesSubtext}>
+                You'll see notifications here when you receive them
+              </Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.messagesList}>
+              {notifications.map((notification) => (
+                <TouchableOpacity
+                  key={notification.id}
+                  style={[
+                    styles.notificationItem,
+                    !notification.is_read && styles.unreadNotificationItem,
+                  ]}
+                  onPress={() => handleNotificationClick(notification)}
+                >
+                  <View style={styles.notificationIcon}>
+                    <Ionicons
+                      name={
+                        notification.type === "proposal"
+                          ? "briefcase"
+                          : notification.type === "message"
+                          ? "chatbubble"
+                          : "notifications"
+                      }
+                      size={24}
+                      color={notification.is_read ? "#999" : primaryColor}
+                    />
+                  </View>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>{notification.title}</Text>
+                    <Text style={styles.notificationBody} numberOfLines={2}>
+                      {notification.body}
+                    </Text>
+                    <Text style={styles.notificationTime}>
+                      {formatDate(notification.created_at)}
+                    </Text>
+                  </View>
+                  {!notification.is_read && <View style={styles.unreadDot} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+
       {/* Messages Modal - Conversations List */}
       <Modal
         visible={messagesModalVisible && !selectedConversation}
@@ -903,7 +997,6 @@ const Home = () => {
         }}
       >
         <SafeAreaView style={styles.messagesSafeArea}>
-          {/* Messages Header */}
           <View style={styles.messagesHeader}>
             <TouchableOpacity
               onPress={() => {
@@ -918,7 +1011,7 @@ const Home = () => {
             <TouchableOpacity
               onPress={() => {
                 fetchConversations();
-                fetchUnreadCount();
+                fetchUnreadCounts();
               }}
               style={styles.refreshButton}
             >
@@ -963,38 +1056,26 @@ const Home = () => {
                           style={styles.conversationAvatar}
                         />
                       ) : (
-                        <View
-                          style={[
-                            styles.conversationAvatar,
-                            styles.avatarPlaceholder,
-                          ]}
-                        >
+                        <View style={[styles.conversationAvatar, styles.avatarPlaceholder]}>
                           <Ionicons name="person" size={24} color="#999" />
                         </View>
                       )}
                     </TouchableOpacity>
                     <View style={styles.conversationContent}>
                       <View style={styles.conversationHeader}>
-                        <Text style={styles.conversationName}>
-                          {conversation.userName}
-                        </Text>
+                        <Text style={styles.conversationName}>{conversation.userName}</Text>
                         <Text style={styles.conversationTime}>
                           {formatDate(conversation.lastMessageTime)}
                         </Text>
                       </View>
                       <View style={styles.conversationFooter}>
-                        <Text
-                          style={styles.conversationLastMessage}
-                          numberOfLines={1}
-                        >
+                        <Text style={styles.conversationLastMessage} numberOfLines={1}>
                           {conversation.lastMessage}
                         </Text>
                         {conversation.unreadCount > 0 && (
                           <View style={styles.conversationBadge}>
                             <Text style={styles.conversationBadgeText}>
-                              {conversation.unreadCount > 99
-                                ? "99+"
-                                : conversation.unreadCount}
+                              {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
                             </Text>
                           </View>
                         )}
@@ -1019,7 +1100,6 @@ const Home = () => {
         }}
       >
         <SafeAreaView style={styles.messagesSafeArea}>
-          {/* Chat Header */}
           <View style={styles.chatHeader}>
             <TouchableOpacity
               onPress={() => {
@@ -1045,9 +1125,7 @@ const Home = () => {
                   style={styles.chatHeaderAvatar}
                 />
               ) : (
-                <View
-                  style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}
-                >
+                <View style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}>
                   <Ionicons name="person" size={20} color="#999" />
                 </View>
               )}
@@ -1058,7 +1136,6 @@ const Home = () => {
             <View style={{ width: 24 }} />
           </View>
 
-          {/* Messages List */}
           {loadingConversation ? (
             <View style={styles.messagesLoadingContainer}>
               <ActivityIndicator size="large" color={primaryColor} />
@@ -1079,31 +1156,25 @@ const Home = () => {
                     key={message.id}
                     style={[
                       styles.messageBubbleContainer,
-                      isSent
-                        ? styles.sentMessageContainer
-                        : styles.receivedMessageContainer,
+                      isSent ? styles.sentMessageContainer : styles.receivedMessageContainer,
                     ]}
                   >
-                    {!isSent && message.sender?.avatar_url && (
+                    {!isSent && message.sender?.avatar && (
                       <Image
-                        source={{ uri: message.sender.avatar_url }}
+                        source={{ uri: message.sender.avatar }}
                         style={styles.messageBubbleAvatar}
                       />
                     )}
                     <View
                       style={[
                         styles.messageBubble,
-                        isSent
-                          ? styles.sentMessageBubble
-                          : styles.receivedMessageBubble,
+                        isSent ? styles.sentMessageBubble : styles.receivedMessageBubble,
                       ]}
                     >
                       <Text
                         style={[
                           styles.messageBubbleText,
-                          isSent
-                            ? styles.sentMessageText
-                            : styles.receivedMessageText,
+                          isSent ? styles.sentMessageText : styles.receivedMessageText,
                         ]}
                       >
                         {message.content}
@@ -1111,18 +1182,13 @@ const Home = () => {
                       <Text
                         style={[
                           styles.messageBubbleTime,
-                          isSent
-                            ? styles.sentMessageTime
-                            : styles.receivedMessageTime,
+                          isSent ? styles.sentMessageTime : styles.receivedMessageTime,
                         ]}
                       >
-                        {new Date(message.created_at).toLocaleTimeString(
-                          "en-US",
-                          {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }
-                        )}
+                        {new Date(message.created_at).toLocaleTimeString("en-US", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </Text>
                     </View>
                     {isSent && <View style={{ width: 32 }} />}
@@ -1132,7 +1198,6 @@ const Home = () => {
             </ScrollView>
           )}
 
-          {/* Message Input */}
           <View style={styles.chatInputContainer}>
             <TextInput
               style={styles.chatInput}
@@ -1147,8 +1212,7 @@ const Home = () => {
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                (!messageText.trim() || sendingMessage) &&
-                  styles.sendButtonDisabled,
+                (!messageText.trim() || sendingMessage) && styles.sendButtonDisabled,
               ]}
               onPress={handleSendMessage}
               disabled={!messageText.trim() || sendingMessage}
@@ -1189,48 +1253,33 @@ const Home = () => {
             </View>
           ) : viewedProfile ? (
             <ScrollView style={styles.profileScrollView}>
-              {/* Profile Header */}
               <View style={styles.profileViewHeader}>
-                {viewedProfile.avatar || viewedProfile.avatar_url ? (
-                  <Image
-                    source={{
-                      uri: viewedProfile.avatar || viewedProfile.avatar_url,
-                    }}
-                    style={styles.profileViewAvatar}
-                  />
+                {viewedProfile.avatar ? (
+                  <Image source={{ uri: viewedProfile.avatar }} style={styles.profileViewAvatar} />
                 ) : (
-                  <View
-                    style={[styles.profileViewAvatar, styles.avatarPlaceholder]}
-                  >
+                  <View style={[styles.profileViewAvatar, styles.avatarPlaceholder]}>
                     <Ionicons name="person" size={48} color="#999" />
                   </View>
                 )}
                 <Text style={styles.profileViewName}>
-                  {`${viewedProfile.first_name || ""} ${
-                    viewedProfile.last_name || ""
-                  }`.trim() ||
+                  {`${viewedProfile.first_name || ""} ${viewedProfile.last_name || ""}`.trim() ||
                     viewedProfile.username ||
                     viewedProfile.name ||
                     "Unknown User"}
                 </Text>
                 {viewedProfile.role && (
                   <View style={styles.profileRoleBadge}>
-                    <Text style={styles.profileRoleText}>
-                      {viewedProfile.role}
-                    </Text>
+                    <Text style={styles.profileRoleText}>{viewedProfile.role}</Text>
                   </View>
                 )}
               </View>
 
-              {/* Profile Info */}
               <View style={styles.profileInfoSection}>
                 {viewedProfile.email && (
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="mail-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Email:</Text>
-                    <Text style={styles.profileInfoValue}>
-                      {viewedProfile.email}
-                    </Text>
+                    <Text style={styles.profileInfoValue}>{viewedProfile.email}</Text>
                   </View>
                 )}
 
@@ -1238,9 +1287,7 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="call-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Phone:</Text>
-                    <Text style={styles.profileInfoValue}>
-                      {viewedProfile.phone}
-                    </Text>
+                    <Text style={styles.profileInfoValue}>{viewedProfile.phone}</Text>
                   </View>
                 )}
 
@@ -1248,18 +1295,14 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="location-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Location:</Text>
-                    <Text style={styles.profileInfoValue}>
-                      {viewedProfile.location}
-                    </Text>
+                    <Text style={styles.profileInfoValue}>{viewedProfile.location}</Text>
                   </View>
                 )}
 
                 {viewedProfile.bio && (
                   <View style={styles.profileBioSection}>
                     <Text style={styles.profileSectionTitle}>About</Text>
-                    <Text style={styles.profileBioText}>
-                      {viewedProfile.bio}
-                    </Text>
+                    <Text style={styles.profileBioText}>{viewedProfile.bio}</Text>
                   </View>
                 )}
 
@@ -1267,13 +1310,11 @@ const Home = () => {
                   <View style={styles.profileSkillsSection}>
                     <Text style={styles.profileSectionTitle}>Skills</Text>
                     <View style={styles.profileSkillsContainer}>
-                      {viewedProfile.skills.map(
-                        (skill: string, index: number) => (
-                          <View key={index} style={styles.profileSkillTag}>
-                            <Text style={styles.profileSkillText}>{skill}</Text>
-                          </View>
-                        )
-                      )}
+                      {viewedProfile.skills.map((skill: string, index: number) => (
+                        <View key={index} style={styles.profileSkillTag}>
+                          <Text style={styles.profileSkillText}>{skill}</Text>
+                        </View>
+                      ))}
                     </View>
                   </View>
                 )}
@@ -1311,11 +1352,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
-  messageIconButton: {
+  headerIcons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  iconButton: {
     position: "relative",
     padding: 8,
   },
-  messageBadge: {
+  badge: {
     position: "absolute",
     top: 0,
     right: 0,
@@ -1327,7 +1372,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 6,
   },
-  messageBadgeText: {
+  badgeText: {
     color: whiteColor,
     fontSize: 11,
     fontWeight: "700",
@@ -1395,105 +1440,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
-  taskCard: {
-    backgroundColor: whiteColor,
-    borderRadius: 12,
-    marginBottom: 16,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  taskContent: {
-    padding: 16,
-  },
-  taskHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  taskDate: {
-    fontSize: 12,
-    color: "#999",
-    fontWeight: "500",
-  },
-  categoryBadge: {
-    backgroundColor: "#FFE5DD",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  categoryText: {
-    fontSize: 11,
-    color: primaryColor,
-    fontWeight: "600",
-  },
-  taskTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: fontColor,
-    marginBottom: 8,
-  },
-  taskDescription: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  skillsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 12,
-    gap: 8,
-  },
-  skillTag: {
-    backgroundColor: backgroundColor,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  skillText: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "500",
-  },
-  taskFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
-  },
-  clientInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  clientAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 8,
-  },
-  avatarPlaceholder: {
-    backgroundColor: "#F0F0F0",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  clientName: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: fontColor,
-  },
-  taskPrice: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: primaryColor,
-  },
   projectCard: {
     backgroundColor: whiteColor,
     borderRadius: 12,
@@ -1536,6 +1482,20 @@ const styles = StyleSheet.create({
     color: "#7A50EC",
     fontWeight: "600",
   },
+  proposalsBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0F0F0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  proposalsText: {
+    fontSize: 11,
+    color: "#666",
+    fontWeight: "600",
+  },
   projectTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -1564,6 +1524,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
+  skillsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 12,
+    gap: 8,
+  },
+  skillTag: {
+    backgroundColor: backgroundColor,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  skillText: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+  },
   projectFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1584,6 +1561,11 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     marginRight: 8,
+  },
+  avatarPlaceholder: {
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   authorInfo: {
     flex: 1,
@@ -1625,6 +1607,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  applyButtonLarge: {
+    flexDirection: "row",
+    backgroundColor: primaryColor,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 20,
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1653,6 +1645,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 20,
     maxHeight: "90%",
+  },
+  detailsModalContent: {
+    backgroundColor: whiteColor,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: "95%",
   },
   modalHeader: {
     flexDirection: "row",
@@ -1742,6 +1741,62 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: whiteColor,
   },
+  detailsHeader: {
+    marginBottom: 16,
+  },
+  detailsTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: fontColor,
+    marginBottom: 8,
+  },
+  detailsPrice: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: primaryColor,
+  },
+  detailsMeta: {
+    marginBottom: 20,
+    gap: 8,
+  },
+  detailsMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  detailsMetaText: {
+    fontSize: 14,
+    color: "#666",
+  },
+  detailsSection: {
+    marginBottom: 20,
+  },
+  detailsSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: fontColor,
+    marginBottom: 12,
+  },
+  detailsDescription: {
+    fontSize: 15,
+    color: "#585858",
+    lineHeight: 22,
+  },
+  clientDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  clientDetailsAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+  },
+  clientDetailsName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: fontColor,
+  },
   messagesSafeArea: {
     flex: 1,
     backgroundColor: backgroundColor,
@@ -1775,45 +1830,6 @@ const styles = StyleSheet.create({
   messagesList: {
     flex: 1,
   },
-  messageItem: {
-    backgroundColor: whiteColor,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
-  messageItemContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-  },
-  messageAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 12,
-  },
-  messageContent: {
-    flex: 1,
-  },
-  messageHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  messageSenderName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: fontColor,
-  },
-  messageTime: {
-    fontSize: 12,
-    color: "#999",
-  },
-  messageText: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
   emptyMessagesContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1831,171 +1847,50 @@ const styles = StyleSheet.create({
     color: "#ccc",
     marginTop: 8,
   },
-  replyModalContent: {
-    backgroundColor: whiteColor,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: "90%",
-  },
-  originalMessageContainer: {
-    backgroundColor: backgroundColor,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  originalMessageHeader: {
+  notificationItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    backgroundColor: whiteColor,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
   },
-  originalMessageAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  unreadNotificationItem: {
+    backgroundColor: "#F0F8FF",
+  },
+  notificationIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
-  originalMessageInfo: {
+  notificationContent: {
     flex: 1,
   },
-  originalMessageSender: {
+  notificationTitle: {
     fontSize: 15,
     fontWeight: "600",
     color: fontColor,
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  originalMessageTime: {
+  notificationBody: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+  },
+  notificationTime: {
     fontSize: 12,
     color: "#999",
   },
-  originalMessageText: {
-    fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-  },
-  unreadMessageItem: {
-    backgroundColor: "#F0F8FF",
-  },
-  profileSafeArea: {
-    flex: 1,
-    backgroundColor: backgroundColor,
-  },
-  profileHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: whiteColor,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
-  },
-  profileHeaderTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: fontColor,
-  },
-  profileLoadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  profileScrollView: {
-    flex: 1,
-  },
-  profileViewHeader: {
-    backgroundColor: whiteColor,
-    padding: 20,
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
-  },
-  profileViewAvatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 12,
-    borderWidth: 3,
-    borderColor: primaryColor,
-  },
-  profileViewName: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: fontColor,
-    marginBottom: 8,
-  },
-  profileRoleBadge: {
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: primaryColor,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  profileRoleText: {
-    color: whiteColor,
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  profileInfoSection: {
-    backgroundColor: whiteColor,
-    padding: 16,
-    marginTop: 10,
-  },
-  profileInfoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  profileInfoLabel: {
-    fontSize: 15,
-    color: "#6c757d",
-    marginLeft: 10,
-    minWidth: 100,
-  },
-  profileInfoValue: {
-    fontSize: 15,
-    color: fontColor,
-    fontWeight: "500",
-    flex: 1,
-  },
-  profileBioSection: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E5E5",
-  },
-  profileSectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: fontColor,
-    marginBottom: 12,
-  },
-  profileBioText: {
-    fontSize: 15,
-    color: "#666",
-    lineHeight: 22,
-  },
-  profileSkillsSection: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E5E5",
-  },
-  profileSkillsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  profileSkillTag: {
-    backgroundColor: backgroundColor,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  profileSkillText: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "500",
+    marginLeft: 8,
   },
   conversationItem: {
     backgroundColor: whiteColor,
@@ -2179,14 +2074,124 @@ const styles = StyleSheet.create({
     backgroundColor: "#ccc",
     opacity: 0.5,
   },
-  proposalCountBadge: {
+  profileSafeArea: {
+    flex: 1,
+    backgroundColor: backgroundColor,
+  },
+  profileHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
-    gap: 6,
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: whiteColor,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E5E5",
   },
-  proposalCountText: {
+  profileHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: fontColor,
+  },
+  profileLoadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  profileScrollView: {
+    flex: 1,
+  },
+  profileViewHeader: {
+    backgroundColor: whiteColor,
+    padding: 20,
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E5E5",
+  },
+  profileViewAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: primaryColor,
+  },
+  profileViewName: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: fontColor,
+    marginBottom: 8,
+  },
+  profileRoleBadge: {
+    backgroundColor: primaryColor,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  profileRoleText: {
+    color: whiteColor,
     fontSize: 13,
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  profileInfoSection: {
+    backgroundColor: whiteColor,
+    padding: 16,
+    marginTop: 10,
+  },
+  profileInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  profileInfoLabel: {
+    fontSize: 15,
+    color: "#6c757d",
+    marginLeft: 10,
+    minWidth: 100,
+  },
+  profileInfoValue: {
+    fontSize: 15,
+    color: fontColor,
+    fontWeight: "500",
+    flex: 1,
+  },
+  profileBioSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E5E5",
+  },
+  profileSectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: fontColor,
+    marginBottom: 12,
+  },
+  profileBioText: {
+    fontSize: 15,
+    color: "#666",
+    lineHeight: 22,
+  },
+  profileSkillsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E5E5",
+  },
+  profileSkillsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  profileSkillTag: {
+    backgroundColor: backgroundColor,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  profileSkillText: {
+    fontSize: 12,
     color: "#666",
     fontWeight: "500",
   },

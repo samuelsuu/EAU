@@ -34,8 +34,10 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface UserProfile {
   id?: string;
@@ -68,6 +70,10 @@ interface UserProfile {
   identity_verified?: boolean | string;
   visible_profile?: boolean | string;
   is_available?: boolean;
+  average_rating?: number;
+  rating_count?: number;
+  reviews?: number;
+  views?: number;
 }
 
 interface EditForm {
@@ -80,11 +86,6 @@ interface EditForm {
   country: string;
   role: "user" | "artisan";
   skills: string[];
-  rating?: number;
-  average_rating?: number;
-  rating_count?: number;
-  reviews?: number;
-  views?: number;
 }
 
 interface Job {
@@ -95,12 +96,29 @@ interface Job {
   created_at: string;
   images?: { id: string; image_url: string }[];
   job_images?: { id: string; image_url: string }[];
+  job_type?: "task" | "project";
+  budget_min?: number;
+  budget_max?: number;
+  budget_type?: "fixed" | "hourly";
+  location?: string;
+  category?: string;
+  deadline?: string | null;
+  deadline_text?: string;
+  skills?: string[];
 }
 
 interface JobForm {
   title: string;
   description: string;
   images: string[];
+  job_type: "task" | "project";
+  budget_min: string;
+  budget_max: string;
+  budget_type: "fixed" | "hourly";
+  location: string;
+  category: string;
+  deadline: string;
+  skills: string[];
 }
 
 const Profile = () => {
@@ -112,6 +130,7 @@ const Profile = () => {
   const [jobModalVisible, setJobModalVisible] = useState(false);
   const [editJobModalVisible, setEditJobModalVisible] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [newJobSkill, setNewJobSkill] = useState("");
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const router = useRouter();
@@ -135,12 +154,19 @@ const Profile = () => {
     title: "",
     description: "",
     images: [],
+    job_type: "project",
+    budget_min: "",
+    budget_max: "",
+    budget_type: "fixed",
+    location: "",
+    category: "",
+    deadline: "",
+    skills: [],
   });
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-
   const [newSkill, setNewSkill] = useState("");
 
   const [settingsForm, setSettingsForm] = useState({
@@ -153,16 +179,14 @@ const Profile = () => {
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [jobImageUploading, setJobImageUploading] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const handlePickAvatar = async () => {
     try {
-      const { status } =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission denied",
-          "Permission to access media library is required."
-        );
+        Alert.alert("Permission denied", "Permission to access media library is required.");
         return;
       }
 
@@ -179,10 +203,7 @@ const Profile = () => {
       const mime = asset.mimeType?.toLowerCase();
       const fileName = asset.fileName?.toLowerCase();
       const isPng = mime?.includes("png") || fileName?.endsWith(".png");
-      const isJpeg =
-        mime?.includes("jpeg") ||
-        mime?.includes("jpg") ||
-        fileName?.match(/\.jpe?g$/);
+      const isJpeg = mime?.includes("jpeg") || mime?.includes("jpg") || fileName?.match(/\.jpe?g$/);
 
       if (mime && !(isPng || isJpeg)) {
         Alert.alert("Unsupported format", "Please select a JPG or PNG image.");
@@ -196,20 +217,14 @@ const Profile = () => {
         [{ resize: { width: 300 } }],
         {
           compress: 0.7,
-          format: isPng
-            ? ImageManipulator.SaveFormat.PNG
-            : ImageManipulator.SaveFormat.JPEG,
+          format: isPng ? ImageManipulator.SaveFormat.PNG : ImageManipulator.SaveFormat.JPEG,
         }
       );
 
       if (user?.id) {
-        const updateRes = await updateProfileById(user.id, {
-          avatar: manip.uri,
-        });
+        const updateRes = await updateProfileById(user.id, { avatar: manip.uri });
         if (updateRes.success) {
-          setUserProfile((prev) =>
-            prev ? { ...prev, avatar: manip.uri } : prev
-          );
+          setUserProfile((prev) => (prev ? { ...prev, avatar: manip.uri } : prev));
           dispatch(setUser({ ...user, avatar: manip.uri }));
           await saveProfileBackup({ ...user, avatar: manip.uri });
         } else {
@@ -224,20 +239,15 @@ const Profile = () => {
   };
 
   useEffect(() => {
-    console.log("🔍 Auth User from Redux:", authUser);
-    console.log("🔍 Auth Token:", token ? "Token exists" : "No token");
-
     loadProfile(false);
   }, []);
 
-  // Load jobs when user profile is loaded and user is an artisan
   useEffect(() => {
     if (user && (user.role === "artisan" || userType === "artisan")) {
       loadJobs();
     }
-  }, [user?.id, user?.role, userType]);
+  }, [user?.id, user?.role]);
 
-  // Job Management Functions
   const loadJobs = async () => {
     if (!user?.id) return;
 
@@ -245,21 +255,11 @@ const Profile = () => {
     try {
       const { data, error } = await supabase
         .from("jobs")
-        .select(`
-          *,
-          job_images (
-            id,
-            image_url
-          )
-        `)
+        .select(`*, job_images (id, image_url)`)
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      
-      // Log the fetched data to see the structure
-      console.log("📦 Fetched jobs data:", JSON.stringify(data, null, 2));
-      
       setJobs(data || []);
     } catch (error: any) {
       console.error("Error loading jobs:", error);
@@ -271,13 +271,9 @@ const Profile = () => {
 
   const handlePickJobImages = async () => {
     try {
-      const { status } =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission denied",
-          "Permission to access media library is required."
-        );
+        Alert.alert("Permission denied", "Permission to access media library is required.");
         return;
       }
 
@@ -302,19 +298,13 @@ const Profile = () => {
           const manip = await ImageManipulator.manipulateAsync(
             asset.uri,
             [{ resize: { width: 800 } }],
-            {
-              compress: 0.7,
-              format: ImageManipulator.SaveFormat.JPEG,
-            }
+            { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
           );
           return manip.uri;
         })
       );
 
-      setJobForm((prev) => ({
-        ...prev,
-        images: [...prev.images, ...newImages],
-      }));
+      setJobForm((prev) => ({ ...prev, images: [...prev.images, ...newImages] }));
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Failed to pick images.");
     } finally {
@@ -330,27 +320,33 @@ const Profile = () => {
   };
 
   const handleEditJob = (job: Job) => {
-    console.log("🎯 Editing job:", job);
-    console.log("🖼️ Job images field:", job.images);
-    console.log("🖼️ Job job_images field:", job.job_images);
-    
     setEditingJob(job);
-    
-    // Extract image URLs - check both 'images' and 'job_images' fields
     const imageArray = job.images || job.job_images || [];
-    const existingImages = imageArray.map(img => {
-      console.log("📸 Processing image:", img);
-      return img.image_url;
-    });
-    
-    console.log("✅ Final images array:", existingImages);
-    
+    const existingImages = imageArray.map((img) => img.image_url);
+
+    // Parse existing deadline
+    let deadlineValue = "";
+    if (job.deadline) {
+      deadlineValue = job.deadline;
+      setSelectedDate(new Date(job.deadline));
+    } else if (job.deadline_text) {
+      deadlineValue = job.deadline_text;
+    }
+
     setJobForm({
-      title: job.title,
-      description: job.description,
+      title: job.title || "",
+      description: job.description || "",
       images: existingImages,
+      job_type: job.job_type || "project",
+      budget_min: job.budget_min?.toString() || "",
+      budget_max: job.budget_max?.toString() || "",
+      budget_type: job.budget_type || "fixed",
+      location: job.location || "",
+      category: job.category || "",
+      deadline: deadlineValue,
+      skills: job.skills || [],
     });
-    
+
     setEditJobModalVisible(true);
   };
 
@@ -365,6 +361,16 @@ const Profile = () => {
       return;
     }
 
+    if (jobForm.budget_min && isNaN(Number(jobForm.budget_min))) {
+      Alert.alert("Error", "Minimum budget must be a number");
+      return;
+    }
+
+    if (jobForm.budget_max && isNaN(Number(jobForm.budget_max))) {
+      Alert.alert("Error", "Maximum budget must be a number");
+      return;
+    }
+
     if (!user?.id) {
       Alert.alert("Error", "User ID not found");
       return;
@@ -372,19 +378,44 @@ const Profile = () => {
 
     setUpdating(true);
     try {
+      // Parse deadline - if it's a valid date, use it; otherwise store as null and use deadline_text
+      let parsedDeadline = null;
+      let deadlineText = jobForm.deadline.trim() || null;
+      
+      if (deadlineText) {
+        // Try to parse as date (YYYY-MM-DD format)
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (dateRegex.test(deadlineText)) {
+          const testDate = new Date(deadlineText);
+          if (!isNaN(testDate.getTime())) {
+            parsedDeadline = deadlineText;
+            deadlineText = null; // Clear text if we have valid date
+          }
+        }
+      }
+
+      const jobData = {
+        title: jobForm.title.trim(),
+        description: jobForm.description.trim(),
+        job_type: jobForm.job_type,
+        budget_min: jobForm.budget_min ? parseFloat(jobForm.budget_min) : null,
+        budget_max: jobForm.budget_max ? parseFloat(jobForm.budget_max) : null,
+        budget_type: jobForm.budget_type,
+        location: jobForm.location.trim() || null,
+        category: jobForm.category.trim() || null,
+        deadline: parsedDeadline,
+        deadline_text: deadlineText,
+        skills: jobForm.skills.length > 0 ? jobForm.skills : null,
+      };
+
       if (editingJob) {
-        // Update existing job
         const { error: jobError } = await supabase
           .from("jobs")
-          .update({
-            title: jobForm.title.trim(),
-            description: jobForm.description.trim(),
-          })
+          .update(jobData)
           .eq("id", editingJob.id);
 
         if (jobError) throw jobError;
 
-        // Delete old images
         const { error: deleteError } = await supabase
           .from("job_images")
           .delete()
@@ -392,60 +423,55 @@ const Profile = () => {
 
         if (deleteError) throw deleteError;
 
-        // Insert new images
         if (jobForm.images.length > 0) {
           const imageInserts = jobForm.images.map((imageUri) => ({
             job_id: editingJob.id,
             image_url: imageUri,
           }));
 
-          const { error: imageError } = await supabase
-            .from("job_images")
-            .insert(imageInserts);
-
+          const { error: imageError } = await supabase.from("job_images").insert(imageInserts);
           if (imageError) throw imageError;
         }
 
         Alert.alert("Success", "Job updated successfully!");
       } else {
-        // Create new job
-        const { data: jobData, error: jobError } = await supabase
+        const { data: newJobData, error: jobError } = await supabase
           .from("jobs")
-          .insert({
-            user_id: user.id,
-            title: jobForm.title.trim(),
-            description: jobForm.description.trim(),
-            status: "open",
-          })
+          .insert({ user_id: user.id, status: "open", ...jobData })
           .select()
           .single();
 
         if (jobError) throw jobError;
 
-        // Upload images if any
         if (jobForm.images.length > 0) {
           const imageInserts = jobForm.images.map((imageUri) => ({
-            job_id: jobData.id,
+            job_id: newJobData.id,
             image_url: imageUri,
           }));
 
-          const { error: imageError } = await supabase
-            .from("job_images")
-            .insert(imageInserts);
-
+          const { error: imageError } = await supabase.from("job_images").insert(imageInserts);
           if (imageError) throw imageError;
         }
 
         Alert.alert("Success", "Job posted successfully!");
       }
 
-      // Reset and close
       setJobModalVisible(false);
       setEditJobModalVisible(false);
-      setJobForm({ title: "", description: "", images: [] });
+      setJobForm({
+        title: "",
+        description: "",
+        images: [],
+        job_type: "project",
+        budget_min: "",
+        budget_max: "",
+        budget_type: "fixed",
+        location: "",
+        category: "",
+        deadline: "",
+        skills: [],
+      });
       setEditingJob(null);
-      
-      // Reload jobs
       await loadJobs();
     } catch (error: any) {
       console.error("Error saving job:", error);
@@ -454,7 +480,55 @@ const Profile = () => {
       setUpdating(false);
     }
   };
-  
+
+  const handleAddJobSkill = () => {
+    const trimmedSkill = newJobSkill.trim();
+    if (!trimmedSkill) {
+      Alert.alert("Error", "Please enter a skill");
+      return;
+    }
+
+    const currentSkills = jobForm.skills || [];
+
+    if (currentSkills.includes(trimmedSkill)) {
+      Alert.alert("Error", "This skill already exists");
+      return;
+    }
+
+    if (currentSkills.length >= 10) {
+      Alert.alert("Error", "Maximum 10 skills allowed");
+      return;
+    }
+
+    setJobForm({ ...jobForm, skills: [...currentSkills, trimmedSkill] });
+    setNewJobSkill("");
+  };
+
+  const handleRemoveJobSkill = (skillToRemove: string) => {
+    const currentSkills = jobForm.skills || [];
+    setJobForm({
+      ...jobForm,
+      skills: currentSkills.filter((skill) => skill !== skillToRemove),
+    });
+  };
+
+  const handleDateChange = (event: any, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    
+    if (date) {
+      setSelectedDate(date);
+      const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+      setJobForm({ ...jobForm, deadline: formattedDate });
+    }
+  };
+
+  const clearDeadline = () => {
+    setJobForm({ ...jobForm, deadline: "" });
+    setSelectedDate(new Date());
+  };
+
   const handleDeleteJob = async (jobId: number) => {
     Alert.alert(
       "Delete Job",
@@ -466,13 +540,8 @@ const Profile = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              const { error } = await supabase
-                .from("jobs")
-                .delete()
-                .eq("id", jobId);
-
+              const { error } = await supabase.from("jobs").delete().eq("id", jobId);
               if (error) throw error;
-
               Alert.alert("Success", "Job deleted successfully");
               loadJobs();
             } catch (error: any) {
@@ -486,39 +555,29 @@ const Profile = () => {
   };
 
   const displayName = React.useMemo(() => {
-    // Try to construct name from first_name and last_name
     const profileFirstName = user?.first_name;
     const profileLastName = user?.last_name;
     const authFirstName = authUser?.first_name;
     const authLastName = authUser?.last_name;
-    
-    // Build full name from first and last name
-    const profileFullName = [profileFirstName, profileLastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    const authFullName = [authFirstName, authLastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    
-    // Fallback to other name fields if first/last name not available
+
+    const profileFullName = [profileFirstName, profileLastName].filter(Boolean).join(" ").trim();
+    const authFullName = [authFirstName, authLastName].filter(Boolean).join(" ").trim();
+
     const profileName = user?.name || user?.user_name || user?.username;
     const authName = authUser?.user_name || authUser?.name || authUser?.username;
-    
+
     return profileFullName || authFullName || profileName || authName || "User";
   }, [user, authUser]);
 
   const displayEmail = React.useMemo(() => {
     const profileEmail = user?.email || user?.user_email;
-    const authEmail =
-      authUser?.email || authUser?.user_email || authUser?.userEmail;
+    const authEmail = authUser?.email || authUser?.user_email || authUser?.userEmail;
     return profileEmail || authEmail || "Email not provided";
   }, [user, authUser]);
 
   const userId = React.useMemo(() => {
     const profileId = user?.user_id || user?.id;
-    const authId = authUser?.user_id || authUser?.id
+    const authId = authUser?.user_id || authUser?.id;
     return profileId || authId || "N/A";
   }, [user, authUser]);
 
@@ -530,9 +589,7 @@ const Profile = () => {
 
   const isAccountDeactivated = React.useMemo(() => {
     const deactiveValue = user?.deactive_account;
-    return (
-      deactiveValue === true || deactiveValue === 1 || deactiveValue === "1"
-    );
+    return deactiveValue === true || deactiveValue === 1 || deactiveValue === "1";
   }, [user]);
 
   const isArtisan = React.useMemo(() => {
@@ -545,28 +602,15 @@ const Profile = () => {
       if (!res.success) throw new Error(res.error);
       const profileData = res.data;
 
-      console.log("📋 Profile API Response:", profileData);
-
       const persistedData = authUser;
-      const hasPersistedData =
-        persistedData && Object.keys(persistedData).length > 0;
+      const hasPersistedData = persistedData && Object.keys(persistedData).length > 0;
 
       let mergedData;
       if (hasPersistedData && !forceApiUpdate) {
-        console.log("🔒 Using persisted data (has priority over API)");
-        mergedData = {
-          ...profileData,
-          ...persistedData,
-        };
+        mergedData = { ...profileData, ...persistedData };
       } else {
-        console.log("🌐 Using API data (force update or no persisted data)");
-        mergedData = {
-          ...persistedData,
-          ...profileData,
-        };
+        mergedData = { ...persistedData, ...profileData };
       }
-
-      console.log("🔄 Merged profile data:", mergedData);
 
       const currentDataStr = JSON.stringify(user);
       const newDataStr = JSON.stringify(mergedData);
@@ -583,8 +627,7 @@ const Profile = () => {
       const fullName = mergedData?.user_name || mergedData?.name || "";
       const nameParts = fullName.trim().split(" ");
       const firstName = mergedData?.first_name || nameParts[0] || "";
-      const lastName =
-        mergedData?.last_name || nameParts.slice(1).join(" ") || "";
+      const lastName = mergedData?.last_name || nameParts.slice(1).join(" ") || "";
 
       setEditForm({
         first_name: firstName,
@@ -598,20 +641,15 @@ const Profile = () => {
         skills: mergedData?.skills || [],
       });
 
-      // Load jobs if artisan
       if (mergedData?.role === "artisan") {
         loadJobs();
       }
     } catch (error: any) {
-      console.log("❌ Profile API error:", error);
-
       let fallbackData = null;
 
       if (authUser && Object.keys(authUser).length > 0) {
-        console.log("📋 Fallback 1: Using Redux persisted data");
         fallbackData = authUser;
       } else {
-        console.log("📦 Fallback 2: Checking AsyncStorage backup");
         fallbackData = await getProfileBackup();
       }
 
@@ -627,8 +665,7 @@ const Profile = () => {
 
         setEditForm({
           first_name: fallbackData?.first_name || nameParts[0] || "",
-          last_name:
-            fallbackData?.last_name || nameParts.slice(1).join(" ") || "",
+          last_name: fallbackData?.last_name || nameParts.slice(1).join(" ") || "",
           email: fallbackData?.email || fallbackData?.user_email || "",
           phone: fallbackData?.phone || "",
           bio: fallbackData?.bio || "",
@@ -638,11 +675,9 @@ const Profile = () => {
           skills: fallbackData?.skills || [],
         });
       } else {
-        Alert.alert(
-          "Error",
-          "Failed to load profile. Please try logging in again.",
-          [{ text: "OK", onPress: () => router.replace("/auth/login") }]
-        );
+        Alert.alert("Error", "Failed to load profile. Please try logging in again.", [
+          { text: "OK", onPress: () => router.replace("/auth/login") },
+        ]);
       }
     } finally {
       setLoading(false);
@@ -685,16 +720,13 @@ const Profile = () => {
 
     setUpdating(true);
     try {
-      console.log("📤 Sending profile update:", trimmedForm);
-
       const userId = user && typeof user.id === "string" ? user.id : undefined;
       const response = userId
         ? await updateProfileById(userId, trimmedForm)
         : { success: false, error: "No user id" };
 
       if (response.success) {
-        const fullName =
-          `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
+        const fullName = `${trimmedForm.first_name} ${trimmedForm.last_name}`.trim();
 
         const updatedUser = {
           ...user,
@@ -716,34 +748,17 @@ const Profile = () => {
           _lastUpdated: new Date().toISOString(),
         };
 
-        console.log("✅ Updated user object:", updatedUser);
-
         dispatch(setUser(updatedUser));
-        console.log("✅ Redux updated");
-
         await saveProfileBackup(updatedUser);
-        console.log("✅ Backup saved");
-
         setUserProfile(updatedUser);
-        console.log("✅ Local state updated");
 
         Alert.alert("Success", "Profile updated successfully!", [
-          {
-            text: "OK",
-            onPress: () => {
-              setEditModalVisible(false);
-              console.log(
-                "✅ Profile update complete - NOT reloading from API to prevent overwrite"
-              );
-            },
-          },
+          { text: "OK", onPress: () => setEditModalVisible(false) },
         ]);
       } else {
         throw new Error(response.error || "Update failed");
       }
     } catch (error: any) {
-      console.error("❌ Update error:", error);
-
       const errorMessage =
         error?.response?.data?.message_desc ||
         error?.response?.data?.message ||
@@ -762,9 +777,7 @@ const Profile = () => {
     Alert.alert(
       `${action.charAt(0).toUpperCase() + action.slice(1)} Account`,
       `Are you sure you want to ${action} your account? ${
-        newStatus
-          ? "You won't be able to access most features."
-          : "Your account will be fully restored."
+        newStatus ? "You won't be able to access most features." : "Your account will be fully restored."
       }`,
       [
         { text: "Cancel", style: "cancel" },
@@ -774,9 +787,7 @@ const Profile = () => {
           onPress: async () => {
             if (user?.id) {
               setUpdating(true);
-              const res = await updateProfileById(user.id, {
-                deactive_account: newStatus,
-              });
+              const res = await updateProfileById(user.id, { deactive_account: newStatus });
               setUpdating(false);
 
               if (res.success) {
@@ -786,10 +797,7 @@ const Profile = () => {
                 await saveProfileBackup(updatedUser);
                 Alert.alert("Success", `Account ${action}d successfully!`);
               } else {
-                Alert.alert(
-                  "Error",
-                  res.error || `Failed to ${action} account`
-                );
+                Alert.alert("Error", res.error || `Failed to ${action} account`);
               }
             }
           },
@@ -844,14 +852,9 @@ const Profile = () => {
 
     setUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: settingsForm.newPassword,
-      });
+      const { error } = await supabase.auth.updateUser({ password: settingsForm.newPassword });
       if (error) throw error;
-      Alert.alert(
-        "Success",
-        "Password changed successfully. Please login again."
-      );
+      Alert.alert("Success", "Password changed successfully. Please login again.");
       setSettingsModalVisible(false);
       await clearAllStorage();
       dispatch(logout());
@@ -886,6 +889,260 @@ const Profile = () => {
     );
   }
 
+  // RENDER JOB MODAL CONTENT
+  const renderJobModalContent = () => (
+    <>
+      <Text style={styles.inputLabel}>Job Type *</Text>
+      <View style={styles.jobTypeContainer}>
+        <TouchableOpacity
+          style={[styles.jobTypeButton, jobForm.job_type === "task" && styles.jobTypeButtonActive]}
+          onPress={() => setJobForm({ ...jobForm, job_type: "task" })}
+          disabled={updating}
+        >
+          <Ionicons
+            name="checkmark-circle-outline"
+            size={20}
+            color={jobForm.job_type === "task" ? "#fff" : primaryColor}
+          />
+          <Text style={[styles.jobTypeText, jobForm.job_type === "task" && styles.jobTypeTextActive]}>
+            Task
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.jobTypeButton, jobForm.job_type === "project" && styles.jobTypeButtonActive]}
+          onPress={() => setJobForm({ ...jobForm, job_type: "project" })}
+          disabled={updating}
+        >
+          <Ionicons
+            name="briefcase-outline"
+            size={20}
+            color={jobForm.job_type === "project" ? "#fff" : primaryColor}
+          />
+          <Text style={[styles.jobTypeText, jobForm.job_type === "project" && styles.jobTypeTextActive]}>
+            Project
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.inputLabel}>Job Title *</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="e.g., Professional Plumbing Services"
+        placeholderTextColor="#999"
+        value={jobForm.title}
+        onChangeText={(text) => setJobForm({ ...jobForm, title: text })}
+        editable={!updating}
+      />
+
+      <Text style={styles.inputLabel}>Category</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="e.g., Plumbing, Electrical, Carpentry"
+        placeholderTextColor="#999"
+        value={jobForm.category}
+        onChangeText={(text) => setJobForm({ ...jobForm, category: text })}
+        editable={!updating}
+      />
+
+      <Text style={styles.inputLabel}>Description *</Text>
+      <TextInput
+        style={styles.textArea}
+        placeholder="Describe your services, experience, and what makes you stand out..."
+        placeholderTextColor="#999"
+        multiline
+        numberOfLines={6}
+        value={jobForm.description}
+        onChangeText={(text) => setJobForm({ ...jobForm, description: text })}
+        textAlignVertical="top"
+        editable={!updating}
+      />
+
+      <Text style={styles.inputLabel}>Budget Type *</Text>
+      <View style={styles.budgetTypeContainer}>
+        <TouchableOpacity
+          style={[styles.budgetTypeButton, jobForm.budget_type === "fixed" && styles.budgetTypeButtonActive]}
+          onPress={() => setJobForm({ ...jobForm, budget_type: "fixed" })}
+          disabled={updating}
+        >
+          <Text style={[styles.budgetTypeText, jobForm.budget_type === "fixed" && styles.budgetTypeTextActive]}>
+            Fixed Price
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.budgetTypeButton, jobForm.budget_type === "hourly" && styles.budgetTypeButtonActive]}
+          onPress={() => setJobForm({ ...jobForm, budget_type: "hourly" })}
+          disabled={updating}
+        >
+          <Text style={[styles.budgetTypeText, jobForm.budget_type === "hourly" && styles.budgetTypeTextActive]}>
+            Hourly Rate
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.budgetRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.inputLabel}>
+            Min Budget {jobForm.budget_type === "hourly" ? "(₦/hr)" : "(₦)"}
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., 5000"
+            placeholderTextColor="#999"
+            keyboardType="numeric"
+            value={jobForm.budget_min}
+            onChangeText={(text) => setJobForm({ ...jobForm, budget_min: text })}
+            editable={!updating}
+          />
+        </View>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={styles.inputLabel}>
+            Max Budget {jobForm.budget_type === "hourly" ? "(₦/hr)" : "(₦)"}
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., 15000"
+            placeholderTextColor="#999"
+            keyboardType="numeric"
+            value={jobForm.budget_max}
+            onChangeText={(text) => setJobForm({ ...jobForm, budget_max: text })}
+            editable={!updating}
+          />
+        </View>
+      </View>
+
+      <Text style={styles.inputLabel}>Location</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="e.g., Port Harcourt, Rivers State"
+        placeholderTextColor="#999"
+        value={jobForm.location}
+        onChangeText={(text) => setJobForm({ ...jobForm, location: text })}
+        editable={!updating}
+      />
+
+      <Text style={styles.inputLabel}>Deadline (Optional)</Text>
+      <View style={styles.deadlineContainer}>
+        <TouchableOpacity
+          style={styles.datePickerButton}
+          onPress={() => setShowDatePicker(true)}
+          disabled={updating}
+        >
+          <Ionicons name="calendar-outline" size={20} color={primaryColor} />
+          <Text style={styles.datePickerButtonText}>
+            {jobForm.deadline ? jobForm.deadline : "Select Date"}
+          </Text>
+        </TouchableOpacity>
+        {jobForm.deadline && (
+          <TouchableOpacity
+            style={styles.clearDateButton}
+            onPress={clearDeadline}
+            disabled={updating}
+          >
+            <Ionicons name="close-circle" size={24} color="#DC3545" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+          minimumDate={new Date()}
+          textColor={primaryColor}
+        />
+      )}
+
+      {Platform.OS === 'ios' && showDatePicker && (
+        <View style={styles.iosDatePickerActions}>
+          <TouchableOpacity
+            style={styles.iosDateButton}
+            onPress={() => setShowDatePicker(false)}
+          >
+            <Text style={styles.iosDateButtonTextCancel}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iosDateButton, styles.iosDateButtonDone]}
+            onPress={() => setShowDatePicker(false)}
+          >
+            <Text style={styles.iosDateButtonTextDone}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <Text style={styles.inputLabel}>Required Skills</Text>
+      <View style={styles.skillsInputContainer}>
+        <TextInput
+          style={styles.skillInput}
+          placeholder="Add a skill (e.g., Pipe fitting, Welding)"
+          placeholderTextColor="#999"
+          value={newJobSkill}
+          onChangeText={setNewJobSkill}
+          onSubmitEditing={handleAddJobSkill}
+          returnKeyType="done"
+          editable={!updating}
+        />
+        <TouchableOpacity
+          style={styles.addSkillButton}
+          onPress={handleAddJobSkill}
+          disabled={updating || !newJobSkill.trim()}
+        >
+          <Ionicons name="add-circle" size={24} color={newJobSkill.trim() ? primaryColor : "#ccc"} />
+        </TouchableOpacity>
+      </View>
+
+      {jobForm.skills && jobForm.skills.length > 0 && (
+        <View style={styles.skillsContainer}>
+          {jobForm.skills.map((skill, index) => (
+            <View key={index} style={styles.skillChipEditable}>
+              <Text style={styles.skillText}>{skill}</Text>
+              <TouchableOpacity onPress={() => handleRemoveJobSkill(skill)} disabled={updating} style={styles.removeSkillButton}>
+                <Ionicons name="close-circle" size={18} color={primaryColor} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <Text style={styles.inputLabel}>Images (Optional - Max 2)</Text>
+      <TouchableOpacity
+        style={styles.imagePickerButton}
+        onPress={handlePickJobImages}
+        disabled={jobImageUploading || jobForm.images.length >= 2}
+      >
+        {jobImageUploading ? (
+          <ActivityIndicator color={primaryColor} />
+        ) : (
+          <>
+            <Ionicons name="images-outline" size={24} color={primaryColor} />
+            <Text style={styles.imagePickerText}>
+              {jobForm.images.length >= 2 ? "Maximum images reached" : "Add Images"}
+            </Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {jobForm.images.length > 0 && (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={[styles.inputLabel, { marginBottom: 8 }]}>
+            Selected Images ({jobForm.images.length}/2)
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.selectedImagesScroll}>
+            {jobForm.images.map((imageUri, index) => (
+              <View key={index} style={styles.selectedImageContainer}>
+                <Image source={{ uri: imageUri }} style={styles.selectedImage} resizeMode="cover" />
+                <TouchableOpacity style={styles.removeImageButton} onPress={() => handleRemoveJobImage(index)}>
+                  <Ionicons name="close-circle" size={24} color="#DC3545" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </>
+  );
+
   return (
     <View style={styles.container}>
       {/* Fixed Header */}
@@ -902,15 +1159,8 @@ const Profile = () => {
         ]}
       >
         <View style={styles.avatarContainer}>
-          <Image
-            source={{ uri: user?.avatar || "https://via.placeholder.com/120" }}
-            style={styles.avatar}
-          />
-          <TouchableOpacity
-            style={styles.editAvatarButton}
-            onPress={handlePickAvatar}
-            disabled={avatarUploading}
-          >
+          <Image source={{ uri: user?.avatar || "https://via.placeholder.com/120" }} style={styles.avatar} />
+          <TouchableOpacity style={styles.editAvatarButton} onPress={handlePickAvatar} disabled={avatarUploading}>
             {avatarUploading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
@@ -946,39 +1196,26 @@ const Profile = () => {
         style={styles.scrollContent}
         contentContainerStyle={styles.scrollContentContainer}
         showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* Stats Section */}
         <View style={styles.statsContainer}>
-          {(user?.average_rating !== undefined ||
-            user?.rating !== undefined) && (
+          {(user?.average_rating !== undefined || user?.rating !== undefined) && (
             <View style={styles.statItem}>
               <Ionicons name="star" size={24} color="#FFD700" />
-              <Text style={styles.statValue}>
-                {(user.average_rating || user.rating || 0).toFixed(1)}
-              </Text>
+              <Text style={styles.statValue}>{(user.average_rating || user.rating || 0).toFixed(1)}</Text>
               <Text style={styles.statLabel}>
                 {user?.rating_count || user?.reviews || 0}{" "}
-                {(user?.rating_count || user?.reviews || 0) === 1
-                  ? "Review"
-                  : "Reviews"}
+                {(user?.rating_count || user?.reviews || 0) === 1 ? "Review" : "Reviews"}
               </Text>
             </View>
           )}
-          {(user?.completed_projects !== undefined ||
-            user?.completedProjects !== undefined) && (
+          {(user?.completed_projects !== undefined || user?.completedProjects !== undefined) && (
             <View style={styles.statItem}>
               <Ionicons name="checkmark-circle" size={24} color="#28a745" />
-              <Text style={styles.statValue}>
-                {user.completed_projects || user.completedProjects}
-              </Text>
+              <Text style={styles.statValue}>{user.completed_projects || user.completedProjects}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
           )}
@@ -1002,7 +1239,19 @@ const Profile = () => {
                 style={styles.addJobButton}
                 onPress={() => {
                   setEditingJob(null);
-                  setJobForm({ title: "", description: "", images: [] });
+                  setJobForm({
+                    title: "",
+                    description: "",
+                    images: [],
+                    job_type: "project",
+                    budget_min: "",
+                    budget_max: "",
+                    budget_type: "fixed",
+                    location: "",
+                    category: "",
+                    deadline: "",
+                    skills: [],
+                  });
                   setJobModalVisible(true);
                 }}
               >
@@ -1013,32 +1262,21 @@ const Profile = () => {
             {loadingJobs ? (
               <ActivityIndicator size="small" color={primaryColor} />
             ) : jobs.length === 0 ? (
-              <Text style={styles.noJobsText}>
-                No jobs posted yet. Tap + to add your first job!
-              </Text>
+              <Text style={styles.noJobsText}>No jobs posted yet. Tap + to add your first job!</Text>
             ) : (
               <View style={styles.jobsList}>
                 {jobs.map((job) => (
                   <View key={job.id} style={styles.jobCard}>
-                    {/* Images at the top */}
                     {((job.images && job.images.length > 0) || (job.job_images && job.job_images.length > 0)) && (
                       <View style={styles.jobImageContainer}>
                         {(job.images || job.job_images || []).slice(0, 2).map((img, index) => (
-                          <TouchableOpacity 
-                            key={img.id || index}
-                            style={styles.jobImageWrapper}
-                          >
-                            <Image
-                              source={{ uri: img.image_url }}
-                              style={styles.jobCardImage}
-                              resizeMode="cover"
-                            />
+                          <TouchableOpacity key={img.id || index} style={styles.jobImageWrapper}>
+                            <Image source={{ uri: img.image_url }} style={styles.jobCardImage} resizeMode="cover" />
                           </TouchableOpacity>
                         ))}
                       </View>
                     )}
 
-                    {/* Content Section */}
                     <View style={styles.jobContent}>
                       <View style={styles.jobHeader}>
                         <Text style={styles.jobTitle} numberOfLines={2}>
@@ -1048,9 +1286,7 @@ const Profile = () => {
                           <View
                             style={[
                               styles.statusBadge,
-                              job.status === "open"
-                                ? styles.statusOpen
-                                : styles.statusClosed,
+                              job.status === "open" ? styles.statusOpen : styles.statusClosed,
                             ]}
                           >
                             <Text style={styles.statusText}>{job.status}</Text>
@@ -1062,35 +1298,18 @@ const Profile = () => {
                         {job.description}
                       </Text>
 
-                      {/* Footer with date and actions */}
                       <View style={styles.jobFooter}>
                         <View style={styles.jobDateContainer}>
                           <Ionicons name="calendar-outline" size={14} color="#6c757d" />
-                          <Text style={styles.jobDate}>
-                            {new Date(job.created_at).toLocaleDateString()}
-                          </Text>
+                          <Text style={styles.jobDate}>{new Date(job.created_at).toLocaleDateString()}</Text>
                         </View>
-                        
+
                         <View style={styles.jobActionButtons}>
-                          <TouchableOpacity
-                            onPress={() => handleEditJob(job)}
-                            style={styles.jobActionButton}
-                          >
-                            <Ionicons
-                              name="create-outline"
-                              size={20}
-                              color="#007AFF"
-                            />
+                          <TouchableOpacity onPress={() => handleEditJob(job)} style={styles.jobActionButton}>
+                            <Ionicons name="create-outline" size={20} color="#007AFF" />
                           </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => handleDeleteJob(job.id)}
-                            style={styles.jobActionButton}
-                          >
-                            <Ionicons
-                              name="trash-outline"
-                              size={20}
-                              color="#DC3545"
-                            />
+                          <TouchableOpacity onPress={() => handleDeleteJob(job.id)} style={styles.jobActionButton}>
+                            <Ionicons name="trash-outline" size={20} color="#DC3545" />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1116,11 +1335,7 @@ const Profile = () => {
         {/* Info Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons
-              name="information-circle-outline"
-              size={20}
-              color="#EE4710"
-            />
+            <Ionicons name="information-circle-outline" size={20} color="#EE4710" />
             <Text style={styles.sectionTitle}>Information</Text>
           </View>
 
@@ -1158,17 +1373,13 @@ const Profile = () => {
             <View style={styles.infoRow}>
               <Ionicons
                 name={
-                  user.is_verified === true ||
-                  user.is_verified === "yes" ||
-                  user.is_verified === 1
+                  user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1
                     ? "checkmark-circle"
                     : "close-circle"
                 }
                 size={18}
                 color={
-                  user.is_verified === true ||
-                  user.is_verified === "yes" ||
-                  user.is_verified === 1
+                  user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1
                     ? "#28a745"
                     : "#666"
                 }
@@ -1179,19 +1390,13 @@ const Profile = () => {
                   styles.infoValue,
                   {
                     color:
-                      user.is_verified === true ||
-                      user.is_verified === "yes" ||
-                      user.is_verified === 1
+                      user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1
                         ? "#28a745"
                         : "#666",
                   },
                 ]}
               >
-                {user.is_verified === true ||
-                user.is_verified === "yes" ||
-                user.is_verified === 1
-                  ? "Yes"
-                  : "No"}
+                {user.is_verified === true || user.is_verified === "yes" || user.is_verified === 1 ? "Yes" : "No"}
               </Text>
             </View>
           )}
@@ -1200,9 +1405,7 @@ const Profile = () => {
             <View style={styles.infoRow}>
               <Ionicons name="calendar-outline" size={18} color="#666" />
               <Text style={styles.infoLabel}>Member Since:</Text>
-              <Text style={styles.infoValue}>
-                {user.memberSince || user.member_since}
-              </Text>
+              <Text style={styles.infoValue}>{user.memberSince || user.member_since}</Text>
             </View>
           )}
         </View>
@@ -1226,18 +1429,12 @@ const Profile = () => {
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => setEditModalVisible(true)}
-          >
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setEditModalVisible(true)}>
             <Ionicons name="create-outline" size={20} color="#fff" />
             <Text style={styles.buttonText}>Edit Profile</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => setSettingsModalVisible(true)}
-          >
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setSettingsModalVisible(true)}>
             <Ionicons name="settings-outline" size={20} color="#EE4710" />
             <Text style={styles.secondaryButtonText}>Settings</Text>
           </TouchableOpacity>
@@ -1273,30 +1470,16 @@ const Profile = () => {
 
         {/* Deactivate/Activate Account Button */}
         <TouchableOpacity
-          style={
-            isAccountDeactivated
-              ? styles.activateButton
-              : styles.deactivateButton
-          }
+          style={isAccountDeactivated ? styles.activateButton : styles.deactivateButton}
           onPress={handleToggleAccountStatus}
           disabled={updating}
         >
           <Ionicons
-            name={
-              isAccountDeactivated
-                ? "checkmark-circle-outline"
-                : "close-circle-outline"
-            }
+            name={isAccountDeactivated ? "checkmark-circle-outline" : "close-circle-outline"}
             size={20}
             color={isAccountDeactivated ? "#28a745" : "#DC3545"}
           />
-          <Text
-            style={
-              isAccountDeactivated
-                ? styles.activateButtonText
-                : styles.deactivateButtonText
-            }
-          >
+          <Text style={isAccountDeactivated ? styles.activateButtonText : styles.deactivateButtonText}>
             {isAccountDeactivated ? "Activate Account" : "Deactivate Account"}
           </Text>
         </TouchableOpacity>
@@ -1312,104 +1495,32 @@ const Profile = () => {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Post a New Job</Text>
-                <TouchableOpacity
-                  onPress={() => setJobModalVisible(false)}
-                  style={styles.closeButton}
-                >
+                <TouchableOpacity onPress={() => setJobModalVisible(false)} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.inputLabel}>Job Title *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., Professional Plumbing Services"
-                  placeholderTextColor="#999"
-                  value={jobForm.title}
-                  onChangeText={(text) =>
-                    setJobForm({ ...jobForm, title: text })
-                  }
-                  editable={!updating}
-                />
-
-                <Text style={styles.inputLabel}>Description *</Text>
-                <TextInput
-                  style={styles.textArea}
-                  placeholder="Describe your services, experience, and what makes you stand out..."
-                  placeholderTextColor="#999"
-                  multiline
-                  numberOfLines={6}
-                  value={jobForm.description}
-                  onChangeText={(text) =>
-                    setJobForm({ ...jobForm, description: text })
-                  }
-                  textAlignVertical="top"
-                  editable={!updating}
-                />
-
-                <Text style={styles.inputLabel}>
-                  Images (Optional - Max 2)
-                </Text>
-                <TouchableOpacity
-                  style={styles.imagePickerButton}
-                  onPress={handlePickJobImages}
-                  disabled={jobImageUploading || jobForm.images.length >= 2}
-                >
-                  {jobImageUploading ? (
-                    <ActivityIndicator color={primaryColor} />
-                  ) : (
-                    <>
-                      <Ionicons name="images-outline" size={24} color={primaryColor} />
-                      <Text style={styles.imagePickerText}>
-                        {jobForm.images.length >= 2
-                          ? "Maximum images reached"
-                          : "Add Images"}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                {jobForm.images.length > 0 && (
-                  <View style={{ marginBottom: 12 }}>
-                    <Text style={[styles.inputLabel, { marginBottom: 8 }]}>
-                      Selected Images ({jobForm.images.length}/2)
-                    </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.selectedImagesScroll}
-                    >
-                      {jobForm.images.map((imageUri, index) => {
-                        console.log("🖼️ Rendering image:", imageUri);
-                        return (
-                          <View key={index} style={styles.selectedImageContainer}>
-                            <Image
-                              source={{ uri: imageUri }}
-                              style={styles.selectedImage}
-                              resizeMode="cover"
-                              onError={(error) => console.log("❌ Image load error:", error.nativeEvent.error)}
-                              onLoad={() => console.log("✅ Image loaded:", imageUri)}
-                            />
-                            <TouchableOpacity
-                              style={styles.removeImageButton}
-                              onPress={() => handleRemoveJobImage(index)}
-                            >
-                              <Ionicons name="close-circle" size={24} color="#DC3545" />
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
+                {renderJobModalContent()}
 
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={styles.cancelButton}
                     onPress={() => {
                       setJobModalVisible(false);
-                      setJobForm({ title: "", description: "", images: [] });
+                      setJobForm({
+                        title: "",
+                        description: "",
+                        images: [],
+                        job_type: "project",
+                        budget_min: "",
+                        budget_max: "",
+                        budget_type: "fixed",
+                        location: "",
+                        category: "",
+                        deadline: "",
+                        skills: [],
+                      });
                     }}
                     disabled={updating}
                   >
@@ -1420,11 +1531,7 @@ const Profile = () => {
                     onPress={handleSaveJob}
                     disabled={updating}
                   >
-                    {updating ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>Post Job</Text>
-                    )}
+                    {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Post Job</Text>}
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -1440,7 +1547,19 @@ const Profile = () => {
           onRequestClose={() => {
             setEditJobModalVisible(false);
             setEditingJob(null);
-            setJobForm({ title: "", description: "", images: [] });
+            setJobForm({
+              title: "",
+              description: "",
+              images: [],
+              job_type: "project",
+              budget_min: "",
+              budget_max: "",
+              budget_type: "fixed",
+              location: "",
+              category: "",
+              deadline: "",
+              skills: [],
+            });
           }}
         >
           <View style={styles.modalOverlay}>
@@ -1451,7 +1570,19 @@ const Profile = () => {
                   onPress={() => {
                     setEditJobModalVisible(false);
                     setEditingJob(null);
-                    setJobForm({ title: "", description: "", images: [] });
+                    setJobForm({
+                      title: "",
+                      description: "",
+                      images: [],
+                      job_type: "project",
+                      budget_min: "",
+                      budget_max: "",
+                      budget_type: "fixed",
+                      location: "",
+                      category: "",
+                      deadline: "",
+                      skills: [],
+                    });
                   }}
                   style={styles.closeButton}
                 >
@@ -1460,83 +1591,7 @@ const Profile = () => {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.inputLabel}>Job Title *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., Professional Plumbing Services"
-                  placeholderTextColor="#999"
-                  value={jobForm.title}
-                  onChangeText={(text) =>
-                    setJobForm({ ...jobForm, title: text })
-                  }
-                  editable={!updating}
-                />
-
-                <Text style={styles.inputLabel}>Description *</Text>
-                <TextInput
-                  style={styles.textArea}
-                  placeholder="Describe your services, experience, and what makes you stand out..."
-                  placeholderTextColor="#999"
-                  multiline
-                  numberOfLines={6}
-                  value={jobForm.description}
-                  onChangeText={(text) =>
-                    setJobForm({ ...jobForm, description: text })
-                  }
-                  textAlignVertical="top"
-                  editable={!updating}
-                />
-
-                <Text style={styles.inputLabel}>
-                  Images (Optional - Max 2)
-                </Text>
-                <TouchableOpacity
-                  style={styles.imagePickerButton}
-                  onPress={handlePickJobImages}
-                  disabled={jobImageUploading || jobForm.images.length >= 2}
-                >
-                  {jobImageUploading ? (
-                    <ActivityIndicator color={primaryColor} />
-                  ) : (
-                    <>
-                      <Ionicons name="images-outline" size={24} color={primaryColor} />
-                      <Text style={styles.imagePickerText}>
-                        {jobForm.images.length >= 2
-                          ? "Maximum images reached"
-                          : "Add Images"}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                {jobForm.images.length > 0 && (
-                  <View style={{ marginBottom: 12 }}>
-                    <Text style={[styles.inputLabel, { marginBottom: 8 }]}>
-                      Selected Images ({jobForm.images.length}/2)
-                    </Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.selectedImagesScroll}
-                    >
-                      {jobForm.images.map((imageUri, index) => (
-                        <View key={index} style={styles.selectedImageContainer}>
-                          <Image
-                            source={{ uri: imageUri }}
-                            style={styles.selectedImage}
-                            resizeMode="cover"
-                          />
-                          <TouchableOpacity
-                            style={styles.removeImageButton}
-                            onPress={() => handleRemoveJobImage(index)}
-                          >
-                            <Ionicons name="close-circle" size={24} color="#DC3545" />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
+                {renderJobModalContent()}
 
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
@@ -1544,7 +1599,19 @@ const Profile = () => {
                     onPress={() => {
                       setEditJobModalVisible(false);
                       setEditingJob(null);
-                      setJobForm({ title: "", description: "", images: [] });
+                      setJobForm({
+                        title: "",
+                        description: "",
+                        images: [],
+                        job_type: "project",
+                        budget_min: "",
+                        budget_max: "",
+                        budget_type: "fixed",
+                        location: "",
+                        category: "",
+                        deadline: "",
+                        skills: [],
+                      });
                     }}
                     disabled={updating}
                   >
@@ -1555,11 +1622,7 @@ const Profile = () => {
                     onPress={handleSaveJob}
                     disabled={updating}
                   >
-                    {updating ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>Update Job</Text>
-                    )}
+                    {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Update Job</Text>}
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -1578,10 +1641,7 @@ const Profile = () => {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Edit Profile</Text>
-                <TouchableOpacity
-                  onPress={() => setEditModalVisible(false)}
-                  style={styles.closeButton}
-                >
+                <TouchableOpacity onPress={() => setEditModalVisible(false)} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
@@ -1593,9 +1653,7 @@ const Profile = () => {
                   placeholder="Enter your first name"
                   placeholderTextColor="#999"
                   value={editForm.first_name}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, first_name: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, first_name: text })}
                   editable={!updating}
                 />
 
@@ -1605,9 +1663,7 @@ const Profile = () => {
                   placeholder="Enter your last name"
                   placeholderTextColor="#999"
                   value={editForm.last_name}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, last_name: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, last_name: text })}
                   editable={!updating}
                 />
 
@@ -1617,9 +1673,7 @@ const Profile = () => {
                   placeholder="Enter your email"
                   placeholderTextColor="#999"
                   value={editForm.email}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, email: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, email: text })}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   editable={!updating}
@@ -1631,9 +1685,7 @@ const Profile = () => {
                   placeholder="Enter your phone number"
                   placeholderTextColor="#999"
                   value={editForm.phone}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, phone: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, phone: text })}
                   keyboardType="phone-pad"
                   editable={!updating}
                 />
@@ -1644,9 +1696,7 @@ const Profile = () => {
                   placeholder="Enter your location"
                   placeholderTextColor="#999"
                   value={editForm.location}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, location: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, location: text })}
                   editable={!updating}
                 />
 
@@ -1656,9 +1706,7 @@ const Profile = () => {
                   placeholder="Enter your country"
                   placeholderTextColor="#999"
                   value={editForm.country}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, country: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, country: text })}
                   editable={!updating}
                 />
 
@@ -1670,14 +1718,11 @@ const Profile = () => {
                   multiline
                   numberOfLines={4}
                   value={editForm.bio}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, bio: text })
-                  }
+                  onChangeText={(text) => setEditForm({ ...editForm, bio: text })}
                   textAlignVertical="top"
                   editable={!updating}
                 />
 
-                {/* Skills Section */}
                 <Text style={styles.inputLabel}>Skills</Text>
                 <View style={styles.skillsInputContainer}>
                   <TextInput
@@ -1695,11 +1740,7 @@ const Profile = () => {
                     onPress={handleAddSkill}
                     disabled={updating || !newSkill.trim()}
                   >
-                    <Ionicons
-                      name="add-circle"
-                      size={24}
-                      color={newSkill.trim() ? primaryColor : "#ccc"}
-                    />
+                    <Ionicons name="add-circle" size={24} color={newSkill.trim() ? primaryColor : "#ccc"} />
                   </TouchableOpacity>
                 </View>
 
@@ -1713,26 +1754,15 @@ const Profile = () => {
                           disabled={updating}
                           style={styles.removeSkillButton}
                         >
-                          <Ionicons
-                            name="close-circle"
-                            size={18}
-                            color={primaryColor}
-                          />
+                          <Ionicons name="close-circle" size={18} color={primaryColor} />
                         </TouchableOpacity>
                       </View>
                     ))}
                   </View>
                 )}
 
-                {/* Role switch logic inside Edit Profile Modal */}
                 <Text style={styles.inputLabel}>Account Type</Text>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginBottom: 12,
-                  }}
-                >
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
                   <Text style={{ marginRight: 12 }}>User</Text>
                   <Switch
                     value={(editForm.role || user?.role) === "artisan"}
@@ -1741,21 +1771,14 @@ const Profile = () => {
                       setEditForm({ ...editForm, role: newRole });
                       if (user?.id) {
                         setUpdating(true);
-                        const res = await updateProfileById(user.id, {
-                          role: newRole,
-                        });
+                        const res = await updateProfileById(user.id, { role: newRole });
                         setUpdating(false);
                         if (res.success) {
-                          setUserProfile((prev) =>
-                            prev ? { ...prev, role: newRole } : prev
-                          );
+                          setUserProfile((prev) => (prev ? { ...prev, role: newRole } : prev));
                           dispatch(setUser({ ...user, role: newRole }));
                           await saveProfileBackup({ ...user, role: newRole });
                         } else {
-                          Alert.alert(
-                            "Error",
-                            res.error || "Failed to update role"
-                          );
+                          Alert.alert("Error", res.error || "Failed to update role");
                         }
                       }
                     }}
@@ -1779,11 +1802,7 @@ const Profile = () => {
                     onPress={handleUpdateProfile}
                     disabled={updating}
                   >
-                    {updating ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>Save Changes</Text>
-                    )}
+                    {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -1802,10 +1821,7 @@ const Profile = () => {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Settings</Text>
-                <TouchableOpacity
-                  onPress={() => setSettingsModalVisible(false)}
-                  style={styles.closeButton}
-                >
+                <TouchableOpacity onPress={() => setSettingsModalVisible(false)} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
@@ -1820,9 +1836,7 @@ const Profile = () => {
                   placeholderTextColor="#999"
                   secureTextEntry
                   value={settingsForm.currentPassword}
-                  onChangeText={(text) =>
-                    setSettingsForm({ ...settingsForm, currentPassword: text })
-                  }
+                  onChangeText={(text) => setSettingsForm({ ...settingsForm, currentPassword: text })}
                   editable={!updating}
                 />
 
@@ -1833,9 +1847,7 @@ const Profile = () => {
                   placeholderTextColor="#999"
                   secureTextEntry
                   value={settingsForm.newPassword}
-                  onChangeText={(text) =>
-                    setSettingsForm({ ...settingsForm, newPassword: text })
-                  }
+                  onChangeText={(text) => setSettingsForm({ ...settingsForm, newPassword: text })}
                   editable={!updating}
                 />
 
@@ -1846,33 +1858,20 @@ const Profile = () => {
                   placeholderTextColor="#999"
                   secureTextEntry
                   value={settingsForm.confirmPassword}
-                  onChangeText={(text) =>
-                    setSettingsForm({ ...settingsForm, confirmPassword: text })
-                  }
+                  onChangeText={(text) => setSettingsForm({ ...settingsForm, confirmPassword: text })}
                   editable={!updating}
                 />
 
                 <TouchableOpacity
-                  style={[
-                    styles.submitButton,
-                    { marginBottom: 20 },
-                    updating && { opacity: 0.7 },
-                  ]}
+                  style={[styles.submitButton, { marginBottom: 20 }, updating && { opacity: 0.7 }]}
                   onPress={handleChangePassword}
                   disabled={updating}
                 >
-                  {updating ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.submitButtonText}>Change Password</Text>
-                  )}
+                  {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Change Password</Text>}
                 </TouchableOpacity>
 
                 <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => setSettingsModalVisible(false)}
-                  >
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setSettingsModalVisible(false)}>
                     <Text style={styles.cancelButtonText}>Close</Text>
                   </TouchableOpacity>
                 </View>
@@ -2157,12 +2156,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
     color: "#065F46",
-  },
-  jobDescription: {
-    fontSize: 14,
-    color: "#6c757d",
-    lineHeight: 20,
-    marginBottom: 16,
   },
   jobImagesScroll: {
     marginVertical: 8,
@@ -2483,5 +2476,124 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
     marginTop: 10,
     marginBottom: 15,
+  },
+  jobTypeContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
+  jobTypeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: secondaryColor,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: secondaryColor,
+    gap: 8,
+  },
+  jobTypeButtonActive: {
+    backgroundColor: primaryColor,
+    borderColor: primaryColor,
+  },
+  jobTypeText: {
+    color: primaryColor,
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  jobTypeTextActive: {
+    color: "#fff",
+  },
+  budgetTypeContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
+  budgetTypeButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F4F4FB",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#E5E5E5",
+  },
+  budgetTypeButtonActive: {
+    backgroundColor: "#FFE5DD",
+    borderColor: primaryColor,
+  },
+  budgetTypeText: {
+    color: "#666",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  budgetTypeTextActive: {
+    color: primaryColor,
+  },
+  budgetRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+  },
+  deadlineContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  datePickerButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F4F4FB",
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    gap: 10,
+  },
+  datePickerButtonText: {
+    color: "#1A1A1A",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  clearDateButton: {
+    padding: 4,
+  },
+  iosDatePickerActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#F4F4FB",
+    borderRadius: 12,
+    marginBottom: 16,
+    gap: 12,
+  },
+  iosDateButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+  iosDateButtonDone: {
+    backgroundColor: primaryColor,
+    borderColor: primaryColor,
+  },
+  iosDateButtonTextCancel: {
+    color: "#666",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  iosDateButtonTextDone: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });

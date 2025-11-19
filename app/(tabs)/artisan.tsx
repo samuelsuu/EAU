@@ -1579,6 +1579,7 @@ const styles = StyleSheet.create({
   detailSafeArea: {
     flex: 1,
     backgroundColor: backgroundColor,
+    marginBottom: 30,
   },
   detailHeaderBar: {
     flexDirection: "row",

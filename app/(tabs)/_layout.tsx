@@ -14,17 +14,18 @@ import {
 
 export default function TabLayout() {
   return (
-    <View style={{ flex: 1, backgroundColor: "#f9fafb" }}>
+    <View style={{ flex: 1, backgroundColor: "#fafbfc" }}>
       <Tabs
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: primaryColor,
-          tabBarInactiveTintColor: "#9ca3af",
+          tabBarInactiveTintColor: "#64748b",
           tabBarShowLabel: true,
           tabBarLabelStyle: {
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: "600",
-            marginBottom: Platform.OS === "ios" ? 4 : 6,
+            marginBottom: Platform.OS === "ios" ? 2 : 4,
+            letterSpacing: 0.3,
           },
           tabBarStyle: {
             position: "absolute",
@@ -32,14 +33,19 @@ export default function TabLayout() {
             left: 0,
             right: 0,
             backgroundColor: "#ffffff",
-            borderTopWidth: 0.5,
-            borderTopColor: "#e5e7eb",
-            height: 65,
-            elevation: 20,
-            shadowColor: "#000",
-            shadowOpacity: 0.05,
-            shadowOffset: { width: 0, height: -2 },
-            shadowRadius: 8,
+            borderTopWidth: 1,
+            borderTopColor: "#f1f5f9",
+            height: Platform.OS === "ios" ? 88 : 68,
+            paddingTop: 8,
+            paddingBottom: Platform.OS === "ios" ? 24 : 8,
+            elevation: 24,
+            shadowColor: "#0f172a",
+            shadowOpacity: 0.08,
+            shadowOffset: { width: 0, height: -4 },
+            shadowRadius: 12,
+          },
+          tabBarItemStyle: {
+            paddingVertical: 4,
           },
         }}
       >
@@ -48,11 +54,73 @@ export default function TabLayout() {
           options={{
             title: "Home",
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons
-                name={focused ? "home" : "home-outline"}
-                size={size + 2}
-                color={color}
-              />
+              <View
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingTop: 2,
+                }}
+              >
+                <Ionicons
+                  name={focused ? "home" : "home-outline"}
+                  size={24}
+                  color={focused ? primaryColor : color}
+                />
+              </View>
+            ),
+          }}
+        />
+
+        <Tabs.Screen
+          name="proposals"
+          options={{
+            title: "",
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={{
+                  position: "relative",
+                  marginTop: -28,
+                }}
+              >
+                {/* Outer glow ring */}
+                <View
+                  style={{
+                    position: "absolute",
+                    width: 76,
+                    height: 76,
+                    borderRadius: 38,
+                    backgroundColor: focused ? primaryColor : secondaryColor,
+                    opacity: 0.15,
+                    top: -3,
+                    left: -3,
+                  }}
+                />
+                
+                {/* Main button */}
+                <View
+                  style={{
+                    backgroundColor: focused ? primaryColor : secondaryColor,
+                    width: 70,
+                    height: 70,
+                    borderRadius: 35,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    borderWidth: 4,
+                    borderColor: "#ffffff",
+                    shadowColor: focused ? primaryColor : secondaryColor,
+                    shadowOpacity: 0.35,
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowRadius: 12,
+                    elevation: 12,
+                  }}
+                >
+                  <Ionicons
+                    name={focused ? "document-text" : "document-text-outline"}
+                    size={32}
+                    color="#ffffff"
+                  />
+                </View>
+              </View>
             ),
           }}
         />
@@ -61,29 +129,22 @@ export default function TabLayout() {
         <Tabs.Screen
           name="artisan"
           options={{
-            title: "",
-            tabBarIcon: ({ color, focused }) => (
+            title: "Artisan",
+            tabBarIcon: ({ color, size, focused }) => (
               <View
-                style={{
-                  backgroundColor: focused ? primaryColor : secondaryColor,
-                  width: 70,
-                  height: 70,
-                  borderRadius: 35,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginBottom: 30, // Raises it above the bar
-                  shadowColor: primaryColor,
-                  shadowOpacity: 0.3,
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowRadius: 8,
-                  elevation: 10,
-                }}
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                paddingTop: 2,
+              }}
               >
-                <Ionicons
-                  name="people-outline"
-                  size={30}
-                  color="#ffffff"
-                />
+            
+                  <Ionicons
+                    name={focused ? "people" : "people-outline"}
+                    size={24}
+                    color={focused ? primaryColor : color}
+                  />
+            
               </View>
             ),
           }}
@@ -92,39 +153,104 @@ export default function TabLayout() {
         <Tabs.Screen
           name="profile"
           options={{
-            title: "Profile",
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons
-                name={focused ? "person" : "person-outline"}
-                size={size + 2}
-                color={color}
-              />
+            title: "",
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={{
+                  position: "relative",
+                  marginTop: -28,
+                }}
+              >
+                {/* Outer glow ring */}
+                <View
+                  style={{
+                    position: "absolute",
+                    width: 76,
+                    height: 76,
+                    borderRadius: 38,
+                    backgroundColor: focused ? primaryColor : secondaryColor,
+                    opacity: 0.15,
+                    top: -3,
+                    left: -3,
+                  }}
+                />
+                
+                {/* Main button */}
+                <View
+                  style={{
+                    backgroundColor: focused ? primaryColor : secondaryColor,
+                    width: 70,
+                    height: 70,
+                    borderRadius: 35,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    borderWidth: 4,
+                    borderColor: "#ffffff",
+                    shadowColor: focused ? primaryColor : secondaryColor,
+                    shadowOpacity: 0.35,
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowRadius: 12,
+                    elevation: 12,
+                  }}
+                >
+                  <Ionicons
+                    name={focused ? "person" : "person-outline"}
+                    size={32}
+                    color="#ffffff"
+                  />
+                </View>
+              </View>
             ),
           }}
         />
 
-        {/* <Tabs.Screen
-          name="profile-setup"
+        <Tabs.Screen
+          name="settings"
           options={{
-            title: "profile-setup",
+            title: "Settings",
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons
-                name={focused ? "person" : "person-outline"}
-                size={size + 2}
-                color={color}
-              />
+              <View
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingTop: 2,
+                }}
+              >
+                <View
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 26,
+                    backgroundColor: focused ? primaryColor : "transparent",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    borderWidth: focused ? 2 : 0,
+                    borderColor: focused ? primaryColor : "transparent",
+                    shadowColor: focused ? primaryColor : "transparent",
+                    shadowOpacity: focused ? 0.2 : 0,
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowRadius: 8,
+                    elevation: focused ? 8 : 0,
+                  }}
+                >
+                  <Ionicons
+                    name={focused ? "settings" : "settings-outline"}
+                    size={24}
+                    color={focused ? "#ffffff" : color}
+                  />
+                </View>
+              </View>
             ),
           }}
-        /> */}
-
+        />
       </Tabs>
 
-      {/* Floating WhatsApp Button */}
+      {/* Premium Floating WhatsApp Button */}
       <FloatingWhatsAppButton
         phoneNumber="+2349127724646"
         message="Hello! I need assistance with the Artisan Network app."
         position="bottom-right"
-        bottom={90} // still above the floating center button
+        bottom={Platform.OS === "ios" ? 108 : 88}
         right={20}
       />
     </View>
