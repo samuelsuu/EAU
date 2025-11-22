@@ -140,14 +140,18 @@ const Home = () => {
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   // Notifications State
-  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+  const [notificationsModalVisible, setNotificationsModalVisible] =
+    useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   // Conversation View State
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
+  const [selectedConversation, setSelectedConversation] =
+    useState<Conversation | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<Message[]>(
+    []
+  );
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -160,7 +164,9 @@ const Home = () => {
 
   // Job Details Modal State
   const [jobDetailsModalVisible, setJobDetailsModalVisible] = useState(false);
-  const [selectedJobDetails, setSelectedJobDetails] = useState<Job | null>(null);
+  const [selectedJobDetails, setSelectedJobDetails] = useState<Job | null>(
+    null
+  );
 
   const [hasProposed, setHasProposed] = useState(false);
   const [checkingProposal, setCheckingProposal] = useState(false);
@@ -171,13 +177,15 @@ const Home = () => {
       setLoading(true);
 
       const allJobsRes = await getOpenJobs({ limit: 50 });
-      
+
       if (allJobsRes.success && allJobsRes.data) {
-        const tasksData = allJobsRes.data.filter(job => job.job_type === "task");
-        const projectsData = allJobsRes.data.filter(job => 
-          !job.job_type || job.job_type === "project"
+        const tasksData = allJobsRes.data.filter(
+          (job) => job.job_type === "task"
         );
-        
+        const projectsData = allJobsRes.data.filter(
+          (job) => !job.job_type || job.job_type === "project"
+        );
+
         setTasks(tasksData);
         setProjects(projectsData);
       } else {
@@ -372,7 +380,10 @@ const Home = () => {
       setTimeout(() => {
         router.push(`/job/${notification.related_id}`);
       }, 300);
-    } else if (notification.type === "proposal_accepted" || notification.type === "proposal_rejected") {
+    } else if (
+      notification.type === "proposal_accepted" ||
+      notification.type === "proposal_rejected"
+    ) {
       // Navigate to my proposals screen (for artisans)
       setTimeout(() => {
         router.push("/(tabs)/proposals");
@@ -440,7 +451,10 @@ const Home = () => {
 
   const handleApply = async (job: Job) => {
     if (!user?.id) {
-      Alert.alert("Authentication Required", "Please sign in to apply for jobs");
+      Alert.alert(
+        "Authentication Required",
+        "Please sign in to apply for jobs"
+      );
       return;
     }
 
@@ -449,9 +463,11 @@ const Home = () => {
     setCheckingProposal(false);
 
     if (checkRes.hasProposed) {
-      Alert.alert("Already Applied", "You have already submitted a proposal for this job.", [
-        { text: "OK" },
-      ]);
+      Alert.alert(
+        "Already Applied",
+        "You have already submitted a proposal for this job.",
+        [{ text: "OK" }]
+      );
       return;
     }
 
@@ -501,9 +517,15 @@ const Home = () => {
           proposalRes.error?.includes("duplicate") ||
           proposalRes.error?.includes("unique")
         ) {
-          Alert.alert("Already Applied", "You have already submitted a proposal for this job.");
+          Alert.alert(
+            "Already Applied",
+            "You have already submitted a proposal for this job."
+          );
         } else {
-          Alert.alert("Error", proposalRes.error || "Failed to submit proposal.");
+          Alert.alert(
+            "Error",
+            proposalRes.error || "Failed to submit proposal."
+          );
         }
       }
     } catch (error: any) {
@@ -523,7 +545,9 @@ const Home = () => {
     >
       <View style={styles.projectCardHeader}>
         <View style={styles.projectHeaderLeft}>
-          <Text style={styles.projectPostedDate}>{formatDate(item.created_at)}</Text>
+          <Text style={styles.projectPostedDate}>
+            {formatDate(item.created_at)}
+          </Text>
           {item.location && (
             <View style={styles.locationBadge}>
               <Ionicons name="location" size={10} color="#7A50EC" />
@@ -576,7 +600,10 @@ const Home = () => {
       <View style={styles.projectFooter}>
         <View style={styles.authorSection}>
           {item.client?.avatar ? (
-            <Image source={{ uri: item.client.avatar }} style={styles.authorAvatar} />
+            <Image
+              source={{ uri: item.client.avatar }}
+              style={styles.authorAvatar}
+            />
           ) : (
             <View style={[styles.authorAvatar, styles.avatarPlaceholder]}>
               <Ionicons name="person" size={16} color="#999" />
@@ -617,7 +644,9 @@ const Home = () => {
     <View style={styles.emptyContainer}>
       <Ionicons name="briefcase-outline" size={64} color="#ccc" />
       <Text style={styles.emptyText}>No {activeTab} available</Text>
-      <Text style={styles.emptySubtext}>Check back later for new opportunities</Text>
+      <Text style={styles.emptySubtext}>
+        Check back later for new opportunities
+      </Text>
     </View>
   );
 
@@ -642,8 +671,15 @@ const Home = () => {
         </View>
         <View style={styles.headerIcons}>
           {/* Messages Icon */}
-          <TouchableOpacity style={styles.iconButton} onPress={openMessagesModal}>
-            <Ionicons name="chatbubble-ellipses-outline" size={24} color={fontColor} />
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push("/message/messages")} // Navigate to messages tab
+          >
+            <Ionicons
+              name="chatbubble-ellipses-outline"
+              size={24}
+              color={fontColor}
+            />
             {messageUnreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
@@ -654,12 +690,21 @@ const Home = () => {
           </TouchableOpacity>
 
           {/* Notifications Icon */}
-          <TouchableOpacity style={styles.iconButton} onPress={openNotificationsModal}>
-            <Ionicons name="notifications-outline" size={24} color={fontColor} />
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={openNotificationsModal}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={24}
+              color={fontColor}
+            />
             {notificationUnreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
-                  {notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}
+                  {notificationUnreadCount > 99
+                    ? "99+"
+                    : notificationUnreadCount}
                 </Text>
               </View>
             )}
@@ -669,7 +714,12 @@ const Home = () => {
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+        <Ionicons
+          name="search"
+          size={20}
+          color="#999"
+          style={styles.searchIcon}
+        />
         <TextInput
           style={styles.searchInput}
           placeholder="Search for jobs..."
@@ -686,7 +736,12 @@ const Home = () => {
           style={[styles.tab, activeTab === "tasks" && styles.activeTab]}
           onPress={() => setActiveTab("tasks")}
         >
-          <Text style={[styles.tabText, activeTab === "tasks" && styles.activeTabText]}>
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "tasks" && styles.activeTabText,
+            ]}
+          >
             Tasks ({tasks.length})
           </Text>
         </TouchableOpacity>
@@ -694,7 +749,12 @@ const Home = () => {
           style={[styles.tab, activeTab === "projects" && styles.activeTab]}
           onPress={() => setActiveTab("projects")}
         >
-          <Text style={[styles.tabText, activeTab === "projects" && styles.activeTabText]}>
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "projects" && styles.activeTabText,
+            ]}
+          >
             Projects ({projects.length})
           </Text>
         </TouchableOpacity>
@@ -708,7 +768,9 @@ const Home = () => {
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={renderEmpty}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       />
 
       {/* Job Details Modal */}
@@ -733,8 +795,12 @@ const Home = () => {
             {selectedJobDetails && (
               <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.detailsHeader}>
-                  <Text style={styles.detailsTitle}>{selectedJobDetails.title}</Text>
-                  <Text style={styles.detailsPrice}>{formatBudget(selectedJobDetails)}</Text>
+                  <Text style={styles.detailsTitle}>
+                    {selectedJobDetails.title}
+                  </Text>
+                  <Text style={styles.detailsPrice}>
+                    {formatBudget(selectedJobDetails)}
+                  </Text>
                 </View>
 
                 <View style={styles.detailsMeta}>
@@ -746,8 +812,14 @@ const Home = () => {
                   </View>
                   {selectedJobDetails.location && (
                     <View style={styles.detailsMetaItem}>
-                      <Ionicons name="location-outline" size={16} color="#666" />
-                      <Text style={styles.detailsMetaText}>{selectedJobDetails.location}</Text>
+                      <Ionicons
+                        name="location-outline"
+                        size={16}
+                        color="#666"
+                      />
+                      <Text style={styles.detailsMetaText}>
+                        {selectedJobDetails.location}
+                      </Text>
                     </View>
                   )}
                   {selectedJobDetails.proposal_count !== undefined && (
@@ -762,28 +834,35 @@ const Home = () => {
 
                 <View style={styles.detailsSection}>
                   <Text style={styles.detailsSectionTitle}>Description</Text>
-                  <Text style={styles.detailsDescription}>{selectedJobDetails.description}</Text>
+                  <Text style={styles.detailsDescription}>
+                    {selectedJobDetails.description}
+                  </Text>
                 </View>
 
-                {selectedJobDetails.skills && selectedJobDetails.skills.length > 0 && (
-                  <View style={styles.detailsSection}>
-                    <Text style={styles.detailsSectionTitle}>Required Skills</Text>
-                    <View style={styles.skillsContainer}>
-                      {selectedJobDetails.skills.map((skill, index) => (
-                        <View key={index} style={styles.skillTag}>
-                          <Text style={styles.skillText}>{skill}</Text>
-                        </View>
-                      ))}
+                {selectedJobDetails.skills &&
+                  selectedJobDetails.skills.length > 0 && (
+                    <View style={styles.detailsSection}>
+                      <Text style={styles.detailsSectionTitle}>
+                        Required Skills
+                      </Text>
+                      <View style={styles.skillsContainer}>
+                        {selectedJobDetails.skills.map((skill, index) => (
+                          <View key={index} style={styles.skillTag}>
+                            <Text style={styles.skillText}>{skill}</Text>
+                          </View>
+                        ))}
+                      </View>
                     </View>
-                  </View>
-                )}
+                  )}
 
                 {selectedJobDetails.deadline && (
                   <View style={styles.detailsSection}>
                     <Text style={styles.detailsSectionTitle}>Deadline</Text>
                     <View style={styles.detailsMetaItem}>
                       <Ionicons name="time-outline" size={16} color="#FF6B6B" />
-                      <Text style={[styles.detailsMetaText, { color: "#FF6B6B" }]}>
+                      <Text
+                        style={[styles.detailsMetaText, { color: "#FF6B6B" }]}
+                      >
                         {formatDate(selectedJobDetails.deadline)}
                       </Text>
                     </View>
@@ -800,7 +879,12 @@ const Home = () => {
                           style={styles.clientDetailsAvatar}
                         />
                       ) : (
-                        <View style={[styles.clientDetailsAvatar, styles.avatarPlaceholder]}>
+                        <View
+                          style={[
+                            styles.clientDetailsAvatar,
+                            styles.avatarPlaceholder,
+                          ]}
+                        >
                           <Ionicons name="person" size={24} color="#999" />
                         </View>
                       )}
@@ -853,7 +937,9 @@ const Home = () => {
                   <Text style={styles.jobPreviewTitle} numberOfLines={2}>
                     {selectedJob.title}
                   </Text>
-                  <Text style={styles.jobPreviewBudget}>{formatBudget(selectedJob)}</Text>
+                  <Text style={styles.jobPreviewBudget}>
+                    {formatBudget(selectedJob)}
+                  </Text>
                 </View>
               )}
 
@@ -879,7 +965,10 @@ const Home = () => {
                 keyboardType="numeric"
                 value={applicationData.proposedPrice}
                 onChangeText={(text) =>
-                  setApplicationData({ ...applicationData, proposedPrice: text })
+                  setApplicationData({
+                    ...applicationData,
+                    proposedPrice: text,
+                  })
                 }
               />
 
@@ -970,7 +1059,9 @@ const Home = () => {
                     />
                   </View>
                   <View style={styles.notificationContent}>
-                    <Text style={styles.notificationTitle}>{notification.title}</Text>
+                    <Text style={styles.notificationTitle}>
+                      {notification.title}
+                    </Text>
                     <Text style={styles.notificationBody} numberOfLines={2}>
                       {notification.body}
                     </Text>
@@ -1056,26 +1147,38 @@ const Home = () => {
                           style={styles.conversationAvatar}
                         />
                       ) : (
-                        <View style={[styles.conversationAvatar, styles.avatarPlaceholder]}>
+                        <View
+                          style={[
+                            styles.conversationAvatar,
+                            styles.avatarPlaceholder,
+                          ]}
+                        >
                           <Ionicons name="person" size={24} color="#999" />
                         </View>
                       )}
                     </TouchableOpacity>
                     <View style={styles.conversationContent}>
                       <View style={styles.conversationHeader}>
-                        <Text style={styles.conversationName}>{conversation.userName}</Text>
+                        <Text style={styles.conversationName}>
+                          {conversation.userName}
+                        </Text>
                         <Text style={styles.conversationTime}>
                           {formatDate(conversation.lastMessageTime)}
                         </Text>
                       </View>
                       <View style={styles.conversationFooter}>
-                        <Text style={styles.conversationLastMessage} numberOfLines={1}>
+                        <Text
+                          style={styles.conversationLastMessage}
+                          numberOfLines={1}
+                        >
                           {conversation.lastMessage}
                         </Text>
                         {conversation.unreadCount > 0 && (
                           <View style={styles.conversationBadge}>
                             <Text style={styles.conversationBadgeText}>
-                              {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
+                              {conversation.unreadCount > 99
+                                ? "99+"
+                                : conversation.unreadCount}
                             </Text>
                           </View>
                         )}
@@ -1125,7 +1228,9 @@ const Home = () => {
                   style={styles.chatHeaderAvatar}
                 />
               ) : (
-                <View style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}>
+                <View
+                  style={[styles.chatHeaderAvatar, styles.avatarPlaceholder]}
+                >
                   <Ionicons name="person" size={20} color="#999" />
                 </View>
               )}
@@ -1156,7 +1261,9 @@ const Home = () => {
                     key={message.id}
                     style={[
                       styles.messageBubbleContainer,
-                      isSent ? styles.sentMessageContainer : styles.receivedMessageContainer,
+                      isSent
+                        ? styles.sentMessageContainer
+                        : styles.receivedMessageContainer,
                     ]}
                   >
                     {!isSent && message.sender?.avatar && (
@@ -1168,13 +1275,17 @@ const Home = () => {
                     <View
                       style={[
                         styles.messageBubble,
-                        isSent ? styles.sentMessageBubble : styles.receivedMessageBubble,
+                        isSent
+                          ? styles.sentMessageBubble
+                          : styles.receivedMessageBubble,
                       ]}
                     >
                       <Text
                         style={[
                           styles.messageBubbleText,
-                          isSent ? styles.sentMessageText : styles.receivedMessageText,
+                          isSent
+                            ? styles.sentMessageText
+                            : styles.receivedMessageText,
                         ]}
                       >
                         {message.content}
@@ -1182,13 +1293,18 @@ const Home = () => {
                       <Text
                         style={[
                           styles.messageBubbleTime,
-                          isSent ? styles.sentMessageTime : styles.receivedMessageTime,
+                          isSent
+                            ? styles.sentMessageTime
+                            : styles.receivedMessageTime,
                         ]}
                       >
-                        {new Date(message.created_at).toLocaleTimeString("en-US", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(message.created_at).toLocaleTimeString(
+                          "en-US",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
                       </Text>
                     </View>
                     {isSent && <View style={{ width: 32 }} />}
@@ -1212,7 +1328,8 @@ const Home = () => {
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                (!messageText.trim() || sendingMessage) && styles.sendButtonDisabled,
+                (!messageText.trim() || sendingMessage) &&
+                  styles.sendButtonDisabled,
               ]}
               onPress={handleSendMessage}
               disabled={!messageText.trim() || sendingMessage}
@@ -1255,21 +1372,30 @@ const Home = () => {
             <ScrollView style={styles.profileScrollView}>
               <View style={styles.profileViewHeader}>
                 {viewedProfile.avatar ? (
-                  <Image source={{ uri: viewedProfile.avatar }} style={styles.profileViewAvatar} />
+                  <Image
+                    source={{ uri: viewedProfile.avatar }}
+                    style={styles.profileViewAvatar}
+                  />
                 ) : (
-                  <View style={[styles.profileViewAvatar, styles.avatarPlaceholder]}>
+                  <View
+                    style={[styles.profileViewAvatar, styles.avatarPlaceholder]}
+                  >
                     <Ionicons name="person" size={48} color="#999" />
                   </View>
                 )}
                 <Text style={styles.profileViewName}>
-                  {`${viewedProfile.first_name || ""} ${viewedProfile.last_name || ""}`.trim() ||
+                  {`${viewedProfile.first_name || ""} ${
+                    viewedProfile.last_name || ""
+                  }`.trim() ||
                     viewedProfile.username ||
                     viewedProfile.name ||
                     "Unknown User"}
                 </Text>
                 {viewedProfile.role && (
                   <View style={styles.profileRoleBadge}>
-                    <Text style={styles.profileRoleText}>{viewedProfile.role}</Text>
+                    <Text style={styles.profileRoleText}>
+                      {viewedProfile.role}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -1279,7 +1405,9 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="mail-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Email:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.email}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.email}
+                    </Text>
                   </View>
                 )}
 
@@ -1287,7 +1415,9 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="call-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Phone:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.phone}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.phone}
+                    </Text>
                   </View>
                 )}
 
@@ -1295,14 +1425,18 @@ const Home = () => {
                   <View style={styles.profileInfoRow}>
                     <Ionicons name="location-outline" size={18} color="#666" />
                     <Text style={styles.profileInfoLabel}>Location:</Text>
-                    <Text style={styles.profileInfoValue}>{viewedProfile.location}</Text>
+                    <Text style={styles.profileInfoValue}>
+                      {viewedProfile.location}
+                    </Text>
                   </View>
                 )}
 
                 {viewedProfile.bio && (
                   <View style={styles.profileBioSection}>
                     <Text style={styles.profileSectionTitle}>About</Text>
-                    <Text style={styles.profileBioText}>{viewedProfile.bio}</Text>
+                    <Text style={styles.profileBioText}>
+                      {viewedProfile.bio}
+                    </Text>
                   </View>
                 )}
 
@@ -1310,11 +1444,13 @@ const Home = () => {
                   <View style={styles.profileSkillsSection}>
                     <Text style={styles.profileSectionTitle}>Skills</Text>
                     <View style={styles.profileSkillsContainer}>
-                      {viewedProfile.skills.map((skill: string, index: number) => (
-                        <View key={index} style={styles.profileSkillTag}>
-                          <Text style={styles.profileSkillText}>{skill}</Text>
-                        </View>
-                      ))}
+                      {viewedProfile.skills.map(
+                        (skill: string, index: number) => (
+                          <View key={index} style={styles.profileSkillTag}>
+                            <Text style={styles.profileSkillText}>{skill}</Text>
+                          </View>
+                        )
+                      )}
                     </View>
                   </View>
                 )}

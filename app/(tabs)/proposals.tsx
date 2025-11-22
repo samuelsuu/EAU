@@ -145,53 +145,54 @@ const MyProposalsScreen = () => {
   };
 
   // Send message
-  const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedProposal || !user?.id) return;
+const handleSendMessage = async () => {
+  if (!messageText.trim() || !selectedProposal || !user?.id) return;
 
-    if (!selectedProposal.job?.client?.id) {
-      Alert.alert("Error", "Client information not available");
-      return;
-    }
+  if (!selectedProposal.job?.client?.id) {
+    Alert.alert("Error", "Client information not available");
+    return;
+  }
 
-    setSendingMessage(true);
-    try {
-      const { error } = await supabase.from("messages").insert({
-        sender_id: user.id,
-        receiver_id: selectedProposal.job.client.id,
-        content: messageText.trim(),
-        is_read: false,
-      });
+  setSendingMessage(true);
+  try {
+    // Remove is_read: false from the insert
+    const { error } = await supabase.from("messages").insert({
+      sender_id: user.id,
+      receiver_id: selectedProposal.job.client.id,
+      content: messageText.trim(),
+      // Removed: is_read: false
+    });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      Alert.alert(
-        "Success",
-        "Message sent successfully! You can continue the conversation in the Messages tab.",
-        [
-          {
-            text: "Go to Messages",
-            onPress: () => {
-              setMessageModalVisible(false);
-              setMessageText("");
-              router.push("/(tabs)/messages");
-            },
+    Alert.alert(
+      "Success",
+      "Message sent successfully! You can continue the conversation in the Messages tab.",
+      [
+        {
+          text: "Go to Messages",
+          onPress: () => {
+            setMessageModalVisible(false);
+            setMessageText("");
+            router.push("/(tabs)/messages");
           },
-          {
-            text: "OK",
-            onPress: () => {
-              setMessageModalVisible(false);
-              setMessageText("");
-            },
+        },
+        {
+          text: "OK",
+          onPress: () => {
+            setMessageModalVisible(false);
+            setMessageText("");
           },
-        ]
-      );
-    } catch (error: any) {
-      console.error("Error sending message:", error);
-      Alert.alert("Error", "Failed to send message");
-    } finally {
-      setSendingMessage(false);
-    }
-  };
+        },
+      ]
+    );
+  } catch (error: any) {
+    console.error("Error sending message:", error);
+    Alert.alert("Error", "Failed to send message");
+  } finally {
+    setSendingMessage(false);
+  }
+};
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -442,116 +443,130 @@ const MyProposalsScreen = () => {
 
       {/* Message Modal */}
       <Modal
-        visible={messageModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setMessageModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Start Conversation</Text>
-                <Text style={styles.modalSubtitle}>Send your first message</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setMessageModalVisible(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={26} color="#64748B" />
-              </TouchableOpacity>
+  visible={messageModalVisible}
+  animationType="slide"
+  transparent={true}
+  onRequestClose={() => setMessageModalVisible(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={styles.messageModalContent}>
+      <View style={styles.modalHeader}>
+        <View>
+          <Text style={styles.modalTitle}>Send Message</Text>
+          <Text style={styles.modalSubtitle}>Start a conversation with the client</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            setMessageModalVisible(false);
+            setMessageText("");
+          }}
+          disabled={sendingMessage}
+          style={styles.closeButton}
+        >
+          <Ionicons name="close" size={26} color="#64748B" />
+        </TouchableOpacity>
+      </View>
+
+      {selectedProposal && (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Job Context Card */}
+          <View style={styles.contextCard}>
+            <View style={styles.contextIcon}>
+              <Ionicons name="briefcase-outline" size={20} color={primaryColor} />
             </View>
+            <View style={styles.contextInfo}>
+              <Text style={styles.contextLabel}>Regarding Job</Text>
+              <Text style={styles.contextTitle} numberOfLines={2}>
+                {selectedProposal.job?.title || "Job"}
+              </Text>
+            </View>
+          </View>
 
-            {selectedProposal && (
-              <View style={styles.messageModalContent}>
-                {/* Job Context Card */}
-                <View style={styles.contextCard}>
-                  <View style={styles.contextIcon}>
-                    <Ionicons name="briefcase-outline" size={20} color={primaryColor} />
-                  </View>
-                  <View style={styles.contextInfo}>
-                    <Text style={styles.contextLabel}>Regarding Job</Text>
-                    <Text style={styles.contextTitle} numberOfLines={2}>
-                      {selectedProposal.job?.title || "Job"}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Client Card */}
-                {selectedProposal.job?.client && (
-                  <View style={styles.clientCard}>
-                    {selectedProposal.job.client.avatar ? (
-                      <Image
-                        source={{ uri: selectedProposal.job.client.avatar }}
-                        style={styles.clientModalAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.clientModalAvatar, styles.avatarPlaceholder]}>
-                        <Ionicons name="person" size={26} color="#94A3B8" />
-                      </View>
-                    )}
-                    <View style={styles.clientCardInfo}>
-                      <Text style={styles.clientCardLabel}>Sending to</Text>
-                      <Text style={styles.clientCardName}>
-                        {selectedProposal.job.client.first_name}{" "}
-                        {selectedProposal.job.client.last_name}
-                      </Text>
-                    </View>
+          {/* Client Info Card */}
+          {selectedProposal.job?.client && (
+            <View style={styles.recipientInfo}>
+              <View style={styles.recipientHeader}>
+                {selectedProposal.job.client.avatar ? (
+                  <Image
+                    source={{ uri: selectedProposal.job.client.avatar }}
+                    style={styles.recipientAvatar}
+                  />
+                ) : (
+                  <View style={[styles.recipientAvatar, styles.avatarPlaceholder]}>
+                    <Ionicons name="person" size={24} color="#94A3B8" />
                   </View>
                 )}
-
-                {/* Message Input */}
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Your Message</Text>
-                  <TextInput
-                    style={styles.messageInput}
-                    placeholder="Introduce yourself and discuss the project details..."
-                    placeholderTextColor="#94A3B8"
-                    multiline
-                    numberOfLines={6}
-                    value={messageText}
-                    onChangeText={setMessageText}
-                    textAlignVertical="top"
-                    editable={!sendingMessage}
-                  />
-                  <Text style={styles.characterCount}>{messageText.length} characters</Text>
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => {
-                      setMessageModalVisible(false);
-                      setMessageText("");
-                    }}
-                    disabled={sendingMessage}
-                  >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.sendButton,
-                      (!messageText.trim() || sendingMessage) && styles.sendButtonDisabled
-                    ]}
-                    onPress={handleSendMessage}
-                    disabled={!messageText.trim() || sendingMessage}
-                  >
-                    {sendingMessage ? (
-                      <ActivityIndicator color={whiteColor} size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="send" size={18} color={whiteColor} />
-                        <Text style={styles.sendButtonText}>Send Message</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                <View style={styles.recipientDetails}>
+                  <Text style={styles.recipientLabel}>Sending to</Text>
+                  <Text style={styles.recipientName}>
+                    {selectedProposal.job.client.first_name}{" "}
+                    {selectedProposal.job.client.last_name}
+                  </Text>
+                  {selectedProposal.job.client.email && (
+                    <Text style={styles.recipientEmail}>
+                      {selectedProposal.job.client.email}
+                    </Text>
+                  )}
                 </View>
               </View>
-            )}
+            </View>
+          )}
+
+          {/* Message Input */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Your Message</Text>
+            <TextInput
+              style={styles.messageInput}
+              placeholder="Introduce yourself and discuss the project details..."
+              placeholderTextColor="#94A3B8"
+              multiline
+              numberOfLines={8}
+              value={messageText}
+              onChangeText={setMessageText}
+              textAlignVertical="top"
+              editable={!sendingMessage}
+              maxLength={500}
+            />
+            <Text style={styles.charCount}>
+              {messageText.length}/500 characters
+            </Text>
           </View>
-        </View>
-      </Modal>
+
+          {/* Action Buttons */}
+          <View style={styles.messageModalButtons}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
+                setMessageModalVisible(false);
+                setMessageText("");
+              }}
+              disabled={sendingMessage}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.sendMessageButton,
+                (!messageText.trim() || sendingMessage) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSendMessage}
+              disabled={!messageText.trim() || sendingMessage}
+            >
+              {sendingMessage ? (
+                <ActivityIndicator color={whiteColor} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="send" size={18} color={whiteColor} />
+                  <Text style={styles.sendMessageButtonText}>Send Message</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+    </View>
+  </View>
+</Modal>
     </SafeAreaView>
   );
 };
@@ -1000,6 +1015,143 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
   },
   sendButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: whiteColor,
+  },
+  messageModalContent: {
+    backgroundColor: whiteColor,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    maxHeight: "90%",
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#64748B",
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  contextCard: {
+    flexDirection: "row",
+    backgroundColor: "#F8FAFC",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  contextIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: whiteColor,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  contextInfo: {
+    flex: 1,
+  },
+  contextLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    marginBottom: 4,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  contextTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0F172A",
+    lineHeight: 20,
+  },
+  recipientInfo: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  recipientHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  recipientAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    marginRight: 14,
+  },
+  recipientDetails: {
+    flex: 1,
+  },
+  recipientLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    marginBottom: 4,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  recipientName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
+    marginBottom: 2,
+  },
+  recipientEmail: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  inputContainer: {
+    marginBottom: 24,
+  },
+  messageInput: {
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 15,
+    color: "#0F172A",
+    minHeight: 150,
+    backgroundColor: "#FAFBFC",
+    lineHeight: 22,
+  },
+  charCount: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "right",
+    marginTop: 8,
+    fontWeight: "500",
+  },
+  messageModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  sendMessageButton: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: primaryColor,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    shadowColor: primaryColor,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+
+  sendMessageButtonText: {
     fontSize: 15,
     fontWeight: "700",
     color: whiteColor,
