@@ -1,5 +1,13 @@
 // app/task/[id].tsx - Task Detail Page
-import { taskDetails, sendMessage, addSavedItem, removeSavedItem } from "@/api/api";
+import { addSavedItem, removeSavedItem, sendMessage, taskDetails } from "@/api/api";
+import {
+    backgroundColor,
+    fontColor,
+    highlightColor,
+    primaryColor,
+    secondaryColor,
+    whiteColor,
+} from "@/constants/GlobalConstants";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -17,14 +25,6 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-    primaryColor,
-    secondaryColor,
-    backgroundColor,
-    whiteColor,
-    fontColor,
-    highlightColor, // Added highlightColor for consistency
-} from "@/constants/GlobalConstants";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -512,7 +512,7 @@ const TaskDetail = () => {
                             <Text style={styles.inputLabel}>Proposed Price (Optional)</Text>
                             <TextInput
                                 style={styles.input}
-                                placeholder="Enter your proposed price (e.g., $150)"
+                                placeholder="Enter your proposed price (e.g., ₦150)"
                                 placeholderTextColor="#999"
                                 keyboardType="default"
                                 value={applicationData.proposedPrice}

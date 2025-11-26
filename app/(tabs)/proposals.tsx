@@ -1,31 +1,28 @@
 // app/(tabs)/proposals.tsx - My Proposals Screen
+import {
+    primaryColor,
+    whiteColor
+} from "@/constants/GlobalConstants";
+import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  Modal,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Image,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSelector } from "react-redux";
-import {
-  primaryColor,
-  secondaryColor,
-  backgroundColor,
-  whiteColor,
-  fontColor,
-} from "@/constants/GlobalConstants";
-import { supabase } from "@/lib/supabase";
 
 interface Proposal {
   id: string;
@@ -265,13 +262,13 @@ const handleSendMessage = async () => {
       </Text>
 
       {/* Proposal Price */}
-      {item.price && (
+          {item.price && (
         <View style={styles.priceContainer}>
           <View style={styles.priceTag}>
             <Ionicons name="pricetag" size={16} color={primaryColor} />
             <Text style={styles.priceLabel}>Your Bid</Text>
           </View>
-          <Text style={styles.priceAmount}>${item.price.toLocaleString()}</Text>
+          <Text style={styles.priceAmount}>₦{item.price.toLocaleString()}</Text>
         </View>
       )}
 

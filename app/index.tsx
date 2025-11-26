@@ -1,11 +1,16 @@
 // app/index.tsx
-import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Dimensions } from "react-native";
-import { useRouter } from "expo-router";
-import { useSelector } from "react-redux";
+import {
+  primaryColor,
+  secondaryColor,
+  whiteColor
+} from "@/constants/GlobalConstants";
 import { RootState } from "@/redux/Store";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef } from "react";
+import { Animated, Dimensions, StatusBar, StyleSheet, Text, View } from "react-native";
+import { useSelector } from "react-redux";
 
 const { width, height } = Dimensions.get("window");
 
@@ -58,9 +63,9 @@ export default function Index() {
       if (token && user) {
         router.replace("/(tabs)/home");
       } else {
-        router.replace("/auth/login");
+        router.replace("/auth/onboarding");
       }
-    }, 3000); // Increased to 3 seconds minimum
+    }, 3000); 
 
     return () => clearTimeout(timer);
   }, [token, user, fadeAnim, scaleAnim, slideAnim, rotateAnim]);
@@ -72,15 +77,17 @@ export default function Index() {
 
   return (
     <LinearGradient
-      colors={["#FF6B35", "#EE4710", "#D63600"]}
+      colors={[primaryColor, "#1A5E32", secondaryColor]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
+      <StatusBar barStyle="light-content" />
+      
       {/* Decorative circles */}
-      <View style={styles.circle1} />
-      <View style={styles.circle2} />
-      <View style={styles.circle3} />
+      <View style={[styles.circle, styles.circle1]} />
+      <View style={[styles.circle, styles.circle2]} />
+      <View style={[styles.circle, styles.circle3]} />
 
       {/* Main content */}
       <Animated.View
@@ -95,7 +102,7 @@ export default function Index() {
         {/* Logo */}
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
-            <Ionicons name="briefcase" size={60} color="#fff" />
+            <Ionicons name="briefcase" size={64} color={primaryColor} />
           </View>
         </View>
 
@@ -147,90 +154,85 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#EE4710",
+    backgroundColor: primaryColor,
+  },
+  circle: {
+    position: "absolute",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: 999,
   },
   circle1: {
-    position: "absolute",
     top: -100,
     right: -100,
     width: 300,
     height: 300,
-    borderRadius: 150,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
   },
   circle2: {
-    position: "absolute",
     bottom: -50,
     left: -50,
     width: 200,
     height: 200,
-    borderRadius: 100,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
   },
   circle3: {
-    position: "absolute",
     top: height * 0.3,
     left: -80,
     width: 160,
     height: 160,
-    borderRadius: 80,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
   content: {
     alignItems: "center",
     justifyContent: "center",
   },
   logoContainer: {
-    marginBottom: 30,
-  },
-  logoCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    marginBottom: 40,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 10,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
     elevation: 10,
+  },
+  logoCircle: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: whiteColor,
+    justifyContent: "center",
+    alignItems: "center",
   },
   textContainer: {
     alignItems: "center",
-    marginBottom: 50,
+    marginBottom: 60,
   },
   appName: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: "800",
-    color: "#fff",
+    color: whiteColor,
     letterSpacing: 1,
     textShadowColor: "rgba(0, 0, 0, 0.2)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+    marginBottom: 8,
   },
   tagline: {
     fontSize: 16,
     color: "rgba(255, 255, 255, 0.9)",
-    marginTop: 8,
-    letterSpacing: 2,
-    fontWeight: "300",
+    letterSpacing: 3,
+    fontWeight: "400",
+    textTransform: "uppercase",
   },
   loadingContainer: {
     marginTop: 20,
   },
   loadingRing: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 3,
     borderColor: "rgba(255, 255, 255, 0.3)",
-    borderTopColor: "#fff",
+    borderTopColor: whiteColor,
   },
   footer: {
     position: "absolute",
@@ -238,12 +240,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   footerText: {
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "rgba(255, 255, 255, 0.7)",
     fontSize: 12,
     fontWeight: "500",
+    letterSpacing: 0.5,
   },
   version: {
-    color: "rgba(255, 255, 255, 0.6)",
+    color: "rgba(255, 255, 255, 0.5)",
     fontSize: 10,
     marginTop: 4,
   },

@@ -868,16 +868,32 @@ const Profile = () => {
   };
 
   const handleLogout = async () => {
-    setUpdating(true);
-    const result = await logoutUser();
-    setUpdating(false);
-    if (result.success) {
-      await clearAllStorage();
-      dispatch(logout());
-      router.replace("/auth/login");
-    } else {
-      Alert.alert("Error", result.error || "Failed to log out");
-    }
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { 
+          text: "Cancel", 
+          style: "cancel" 
+        },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            setUpdating(true);
+            const result = await logoutUser();
+            setUpdating(false);
+            if (result.success) {
+              await clearAllStorage();
+              dispatch(logout());
+              router.replace("/auth/login");
+            } else {
+              Alert.alert("Error", result.error || "Failed to log out");
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {

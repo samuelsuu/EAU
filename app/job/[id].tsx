@@ -1,32 +1,30 @@
 // app/job/[id].tsx - Job Proposals View Screen
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useSelector } from "react-redux";
-import {
-  primaryColor,
-  secondaryColor,
-  backgroundColor,
-  whiteColor,
-  fontColor,
+    backgroundColor,
+    fontColor,
+    primaryColor,
+    whiteColor
 } from "@/constants/GlobalConstants";
 import { supabase } from "@/lib/supabase";
 import { getJobById } from "@/services/jobs";
 import { getProfileById } from "@/services/login";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useSelector } from "react-redux";
 
 interface Job {
   id: string;
@@ -285,16 +283,16 @@ const JobProposalsScreen = () => {
   const formatBudget = (job: Job) => {
     if (job.budget_type === "hourly") {
       if (job.budget_min && job.budget_max) {
-        return `$${job.budget_min}-$${job.budget_max}/hr`;
+        return `₦${job.budget_min}-₦${job.budget_max}/hr`;
       } else if (job.budget_min) {
-        return `$${job.budget_min}/hr`;
+        return `₦${job.budget_min}/hr`;
       }
       return "Hourly Rate";
     } else {
       if (job.budget_min && job.budget_max) {
-        return `$${job.budget_min}-$${job.budget_max}`;
+        return `₦${job.budget_min}-₦${job.budget_max}`;
       } else if (job.budget_min) {
-        return `$${job.budget_min}`;
+        return `₦${job.budget_min}`;
       }
       return "Fixed Price";
     }
@@ -458,7 +456,7 @@ const JobProposalsScreen = () => {
                 {proposal.price && (
                   <View style={styles.proposalPriceContainer}>
                     <Ionicons name="cash-outline" size={16} color={primaryColor} />
-                    <Text style={styles.proposalPrice}>${proposal.price}</Text>
+                    <Text style={styles.proposalPrice}>₦{proposal.price}</Text>
                   </View>
                 )}
 
@@ -579,7 +577,7 @@ const JobProposalsScreen = () => {
                     <View style={styles.detailsRow}>
                       <Ionicons name="cash-outline" size={20} color={primaryColor} />
                       <Text style={styles.detailsLabel}>Proposed Amount:</Text>
-                      <Text style={styles.detailsValue}>${selectedProposal.price}</Text>
+                      <Text style={styles.detailsValue}>₦{selectedProposal.price}</Text>
                     </View>
                   )}
 

@@ -1,9 +1,35 @@
 // app/(tabs)/home.tsx - IMPROVED VERSION
+import {
+  backgroundColor,
+  fontColor,
+  primaryColor,
+  whiteColor
+} from "@/constants/GlobalConstants";
+import {
+  getNotifications,
+  getOpenJobs,
+  getUnreadNotificationCount,
+  hasUserProposed,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  submitProposal,
+} from "@/services/jobs";
+import { getProfileById } from "@/services/login";
+import {
+  Conversation,
+  getConversation,
+  getConversationsList,
+  getUnreadMessageCount,
+  markMessageAsRead,
+  Message,
+  sendReply,
+} from "@/services/messages";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -15,38 +41,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSelector } from "react-redux";
-import {
-  primaryColor,
-  secondaryColor,
-  backgroundColor,
-  whiteColor,
-  fontColor,
-  highlightColor,
-} from "@/constants/GlobalConstants";
-import { supabase } from "@/lib/supabase";
-import {
-  getConversationsList,
-  getConversation,
-  getUnreadMessageCount,
-  sendReply,
-  markMessageAsRead,
-  Message,
-  Conversation,
-} from "@/services/messages";
-import {
-  getOpenJobs,
-  submitProposal,
-  hasUserProposed,
-  getUnreadNotificationCount,
-  getNotifications,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
-} from "@/services/jobs";
-import { getProfileById } from "@/services/login";
 
 const { width } = Dimensions.get("window");
 
@@ -421,16 +418,20 @@ const Home = () => {
   const formatBudget = (job: Job) => {
     if (job.budget_type === "hourly") {
       if (job.budget_min && job.budget_max) {
-        return `$${job.budget_min}-$${job.budget_max}/hr`;
+        return `₦${Number(job.budget_min).toLocaleString()}-₦${Number(
+          job.budget_max
+        ).toLocaleString()}/hr`;
       } else if (job.budget_min) {
-        return `$${job.budget_min}/hr`;
+        return `₦${Number(job.budget_min).toLocaleString()}/hr`;
       }
       return "Hourly Rate";
     } else {
       if (job.budget_min && job.budget_max) {
-        return `$${job.budget_min}-$${job.budget_max}`;
+        return `₦${Number(job.budget_min).toLocaleString()}-₦${Number(
+          job.budget_max
+        ).toLocaleString()}`;
       } else if (job.budget_min) {
-        return `$${job.budget_min}`;
+        return `₦${Number(job.budget_min).toLocaleString()}`;
       }
       return "Fixed Price";
     }
@@ -1490,11 +1491,12 @@ const styles = StyleSheet.create({
   },
   headerIcons: {
     flexDirection: "row",
-    gap: 12,
+    
   },
   iconButton: {
     position: "relative",
     padding: 8,
+    marginLeft: 12,
   },
   badge: {
     position: "absolute",
@@ -1597,12 +1599,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
-    gap: 8,
   },
   projectPostedDate: {
     fontSize: 12,
     color: "#999",
     fontWeight: "500",
+    marginRight: 8,
   },
   locationBadge: {
     flexDirection: "row",
@@ -1611,12 +1613,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
-    gap: 4,
+    
   },
   locationText: {
     fontSize: 10,
     color: "#7A50EC",
     fontWeight: "600",
+    marginLeft: 4,
   },
   proposalsBadge: {
     flexDirection: "row",
@@ -1625,12 +1628,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
-    gap: 4,
+    
   },
   proposalsText: {
     fontSize: 11,
     color: "#666",
     fontWeight: "600",
+    marginLeft: 4,
   },
   projectTitle: {
     fontSize: 18,
@@ -1649,12 +1653,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     marginBottom: 12,
-    gap: 12,
+    
   },
   projectMetaItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    marginRight: 12,
   },
   projectMetaText: {
     fontSize: 12,
@@ -1664,13 +1668,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     marginBottom: 12,
-    gap: 8,
+    
   },
   skillTag: {
     backgroundColor: backgroundColor,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
+    marginRight: 8,
+    marginBottom: 8,
   },
   skillText: {
     fontSize: 12,
@@ -1736,12 +1742,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    
   },
   applyButtonText: {
     color: whiteColor,
     fontSize: 15,
     fontWeight: "600",
+    marginRight: 6,
   },
   applyButtonLarge: {
     flexDirection: "row",
@@ -1750,7 +1757,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
     marginTop: 20,
   },
   emptyContainer: {
@@ -1850,7 +1856,7 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: "row",
     marginTop: 8,
-    gap: 12,
+    
   },
   cancelButton: {
     flex: 1,
@@ -1859,6 +1865,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E5E5",
     alignItems: "center",
+    marginRight: 12,
   },
   cancelButtonText: {
     fontSize: 15,
@@ -1893,16 +1900,17 @@ const styles = StyleSheet.create({
   },
   detailsMeta: {
     marginBottom: 20,
-    gap: 8,
+    
   },
   detailsMetaItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    marginRight: 8,
   },
   detailsMetaText: {
     fontSize: 14,
     color: "#666",
+    marginLeft: 6,
   },
   detailsSection: {
     marginBottom: 20,
@@ -2185,7 +2193,7 @@ const styles = StyleSheet.create({
     backgroundColor: whiteColor,
     borderTopWidth: 1,
     borderTopColor: "#E5E5E5",
-    gap: 8,
+    
   },
   chatInput: {
     flex: 1,
@@ -2197,6 +2205,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: fontColor,
     maxHeight: 100,
+    marginRight: 8,
   },
   sendButton: {
     width: 44,
@@ -2318,13 +2327,14 @@ const styles = StyleSheet.create({
   profileSkillsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    
   },
   profileSkillTag: {
     backgroundColor: backgroundColor,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
+    marginRight: 8,
   },
   profileSkillText: {
     fontSize: 12,

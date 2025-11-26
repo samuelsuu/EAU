@@ -1,13 +1,12 @@
 // app/_layout.tsx
-import React, { useEffect } from "react";
-import { Stack, useRouter, useSegments } from "expo-router";
-import { Provider, useSelector } from "react-redux";
-import { PersistGate } from "redux-persist/integration/react";
-import { ActivityIndicator, View, StyleSheet } from "react-native";
-import { store, persistor, RootState } from "@/redux/Store";
 import AlertComponent from "@/components/base/AlertComponent";
-import { useDispatch } from "react-redux";
 import { hideAlert } from "@/redux/slices/alertSlice";
+import { persistor, RootState, store } from "@/redux/Store";
+import { Stack, useRouter, useSegments } from "expo-router";
+import React, { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { Provider, useDispatch, useSelector } from "react-redux";
+import { PersistGate } from "redux-persist/integration/react";
 
 // Loading Screen Component
 function LoadingScreen() {
@@ -35,7 +34,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
     // If user is not logged in and trying to access protected pages, redirect to login
     if (!token && inTabsGroup) {
-      router.replace("/auth/login");
+      router.replace("/auth/onboarding");
     }
   }, [token, user, segments]);
 
@@ -75,15 +74,16 @@ function RootLayoutNav() {
         {/* Auth screens */}
         <Stack.Screen name="auth/login" options={{ headerShown: false }} />
         <Stack.Screen name="auth/register" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/onboarding" options={{ headerShown: false }} />
         
         {/* Main app screens */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         
         {/* Other screens */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
-         <Stack.Screen name="task" options={{ headerShown: false }} />
-         <Stack.Screen name="job" options={{ headerShown: false }} />
-         <Stack.Screen name="project" options={{ headerShown: false }} />
+         <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
+         <Stack.Screen name="job/[id]" options={{ headerShown: false }} />
+         <Stack.Screen name="project/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="message/messages" options={{ headerShown: false }} />
       </Stack>
       <AlertDialog />
